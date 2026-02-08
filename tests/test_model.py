@@ -16,6 +16,7 @@ from src.models.positional_encoding import (
 )
 from src.models.attention import MultiHeadSelfAttention
 from src.models.transformer_block import TransformerBlock, MLP
+from src.models.weather_transformer import WeatherTransformer
 
 
 # ============================================================
@@ -336,6 +337,93 @@ class TestTransformerBlock:
         """Block should have two LayerNorm modules (pre-norm)."""
         assert isinstance(block.norm1, nn.LayerNorm)
         assert isinstance(block.norm2, nn.LayerNorm)
+
+
+# ============================================================
+# Full Weather Transformer Tests
+# ============================================================
+NUM_LAYERS = 6
+
+
+class TestWeatherTransformer:
+    """Tests for the full WeatherTransformer model."""
+
+    @pytest.fixture
+    def model(self):
+        return WeatherTransformer(
+            in_channels=IN_CHANNELS,
+            out_channels=IN_CHANNELS,
+            img_height=IMG_HEIGHT,
+            img_width=IMG_WIDTH,
+            patch_size=PATCH_SIZE,
+            embed_dim=EMBED_DIM,
+            num_heads=NUM_HEADS,
+            num_layers=NUM_LAYERS,
+            mlp_ratio=MLP_RATIO,
+            dropout=0.0,
+        )
+
+    @pytest.fixture
+    def model_input(self):
+        return torch.randn(BATCH_SIZE, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+
+    def test_output_shape(self, model, model_input):
+        """Output must be same shape as input: (B, C, H, W)."""
+        output = model(model_input)
+        assert output.shape == (BATCH_SIZE, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+
+    def test_single_sample(self, model):
+        """Model should work with batch_size=1."""
+        x = torch.randn(1, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+        out = model(x)
+        assert out.shape == (1, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+
+    def test_backward_pass(self, model, model_input):
+        """Full backward pass should work without errors."""
+        output = model(model_input)
+        loss = output.sum()
+        loss.backward()
+        # Check that all parameters received gradients
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"No gradient for {name}"
+
+    def test_attention_weights_returned(self, model, model_input):
+        """return_attention should give list of NUM_LAYERS attention tensors."""
+        output, attns = model(model_input, return_attention=True)
+        assert len(attns) == NUM_LAYERS
+        for attn in attns:
+            assert attn.shape == (BATCH_SIZE, NUM_HEADS, model.n_patches, model.n_patches)
+
+    def test_parameter_count_reasonable(self, model):
+        """Model should have a reasonable number of parameters."""
+        n_params = model.count_parameters()
+        # With embed_dim=256, 6 layers → should be roughly 3-5M params
+        assert 1_000_000 < n_params < 20_000_000, (
+            f"Parameter count {n_params:,} seems unreasonable"
+        )
+
+    def test_get_config(self, model):
+        """get_config should return all key architecture details."""
+        config = model.get_config()
+        assert config["in_channels"] == IN_CHANNELS
+        assert config["embed_dim"] == EMBED_DIM
+        assert config["num_layers"] == NUM_LAYERS
+        assert "total_params" in config
+
+    def test_different_inputs_different_outputs(self, model):
+        """Model should produce different outputs for different inputs."""
+        x1 = torch.randn(1, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+        x2 = torch.randn(1, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+        assert not torch.allclose(model(x1), model(x2))
+
+    def test_model_is_differentiable(self, model, model_input):
+        """Input gradients should flow through the full model."""
+        model_input.requires_grad_(True)
+        output = model(model_input)
+        output.sum().backward()
+        assert model_input.grad is not None
+        assert model_input.grad.shape == model_input.shape
 
 
 if __name__ == "__main__":
