@@ -7,8 +7,13 @@ Run with: pytest tests/test_model.py -v
 
 import pytest
 import torch
+import torch.nn as nn
 
 from src.models.patch_embedding import PatchEmbedding
+from src.models.positional_encoding import (
+    LearnablePositionalEncoding,
+    SinusoidalPositionalEncoding,
+)
 
 
 # ============================================================
@@ -120,6 +125,81 @@ class TestPatchEmbedding:
         assert n_params == expected_total, (
             f"Expected {expected_total} params, got {n_params}"
         )
+
+
+
+
+# ============================================================
+# Positional Encoding Tests
+# ============================================================
+class TestLearnablePositionalEncoding:
+    """Tests for LearnablePositionalEncoding."""
+
+    @pytest.fixture
+    def learnable_pe(self):
+        return LearnablePositionalEncoding(
+            n_patches=N_PATCHES, embed_dim=EMBED_DIM, dropout=0.0
+        )
+
+    @pytest.fixture
+    def pe_input(self):
+        return torch.randn(BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_output_shape(self, learnable_pe, pe_input):
+        """Output shape must match input shape."""
+        output = learnable_pe(pe_input)
+        assert output.shape == (BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_output_differs_from_input(self, learnable_pe, pe_input):
+        """Adding positional info should change the values."""
+        output = learnable_pe(pe_input)
+        assert not torch.allclose(output, pe_input)
+
+    def test_different_positions_different_encodings(self, learnable_pe):
+        """Each position should have a unique encoding vector."""
+        pos_emb = learnable_pe.position_embeddings[0]  # (N, D)
+        assert not torch.allclose(pos_emb[0], pos_emb[1])
+
+    def test_gradient_flow(self, learnable_pe, pe_input):
+        """Gradients should flow through positional encoding."""
+        pe_input.requires_grad_(True)
+        output = learnable_pe(pe_input)
+        output.sum().backward()
+        assert pe_input.grad is not None
+
+    def test_position_embeddings_are_learned(self, learnable_pe):
+        """Position embeddings should be nn.Parameter (trainable)."""
+        assert isinstance(learnable_pe.position_embeddings, nn.Parameter)
+
+
+class TestSinusoidalPositionalEncoding:
+    """Tests for SinusoidalPositionalEncoding."""
+
+    @pytest.fixture
+    def sinusoidal_pe(self):
+        return SinusoidalPositionalEncoding(
+            n_patches=N_PATCHES, embed_dim=EMBED_DIM,
+            n_patches_h=8, n_patches_w=16, dropout=0.0,
+        )
+
+    @pytest.fixture
+    def pe_input(self):
+        return torch.randn(BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_output_shape(self, sinusoidal_pe, pe_input):
+        """Output shape must match input shape."""
+        output = sinusoidal_pe(pe_input)
+        assert output.shape == (BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_encoding_is_fixed(self, sinusoidal_pe):
+        """Sinusoidal encoding should be a buffer, not a parameter."""
+        assert "position_embeddings" in dict(sinusoidal_pe.named_buffers())
+        assert "position_embeddings" not in dict(sinusoidal_pe.named_parameters())
+
+    def test_different_positions_different_encodings(self, sinusoidal_pe):
+        """Different spatial positions should have different encodings."""
+        pe = sinusoidal_pe.position_embeddings[0]  # (N, D)
+        assert not torch.allclose(pe[0], pe[1])
 
 
 if __name__ == "__main__":
