@@ -15,6 +15,7 @@ from src.models.positional_encoding import (
     SinusoidalPositionalEncoding,
 )
 from src.models.attention import MultiHeadSelfAttention
+from src.models.transformer_block import TransformerBlock, MLP
 
 
 # ============================================================
@@ -260,6 +261,81 @@ class TestMultiHeadSelfAttention:
         """embed_dim not divisible by num_heads should raise."""
         with pytest.raises(AssertionError):
             MultiHeadSelfAttention(embed_dim=256, num_heads=7)
+
+
+# ============================================================
+# Transformer Block Tests
+# ============================================================
+MLP_RATIO = 4.0
+
+
+class TestMLP:
+    """Tests for the MLP sub-module."""
+
+    @pytest.fixture
+    def mlp(self):
+        return MLP(embed_dim=EMBED_DIM, mlp_ratio=MLP_RATIO, dropout=0.0)
+
+    def test_output_shape(self, mlp):
+        """MLP output shape must match input shape."""
+        x = torch.randn(BATCH_SIZE, N_PATCHES, EMBED_DIM)
+        assert mlp(x).shape == (BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_hidden_dim(self, mlp):
+        """Hidden dimension should be embed_dim * mlp_ratio."""
+        assert mlp.fc1.out_features == int(EMBED_DIM * MLP_RATIO)
+
+
+class TestTransformerBlock:
+    """Tests for TransformerBlock module."""
+
+    @pytest.fixture
+    def block(self):
+        return TransformerBlock(
+            embed_dim=EMBED_DIM, num_heads=NUM_HEADS,
+            mlp_ratio=MLP_RATIO, dropout=0.0,
+        )
+
+    @pytest.fixture
+    def block_input(self):
+        return torch.randn(BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_output_shape(self, block, block_input):
+        """Output shape must match input shape."""
+        output = block(block_input)
+        assert output.shape == (BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_residual_connection(self, block):
+        """Output should be non-zero even with zero input (due to bias terms)."""
+        zero_input = torch.zeros(1, N_PATCHES, EMBED_DIM)
+        output = block(zero_input)
+        assert output.norm().item() > 0, "Residual connection should produce non-zero output"
+
+    def test_output_changes_with_input(self, block):
+        """Different inputs should produce different outputs."""
+        x1 = torch.randn(1, N_PATCHES, EMBED_DIM)
+        x2 = torch.randn(1, N_PATCHES, EMBED_DIM)
+        out1 = block(x1)
+        out2 = block(x2)
+        assert not torch.allclose(out1, out2)
+
+    def test_gradient_flow(self, block, block_input):
+        """Gradients should flow through the block."""
+        block_input.requires_grad_(True)
+        output = block(block_input)
+        output.sum().backward()
+        assert block_input.grad is not None
+
+    def test_attention_weights_returned(self, block, block_input):
+        """return_attention=True should return attention weights."""
+        output, attn = block(block_input, return_attention=True)
+        assert output.shape == (BATCH_SIZE, N_PATCHES, EMBED_DIM)
+        assert attn.shape == (BATCH_SIZE, NUM_HEADS, N_PATCHES, N_PATCHES)
+
+    def test_pre_norm_architecture(self, block):
+        """Block should have two LayerNorm modules (pre-norm)."""
+        assert isinstance(block.norm1, nn.LayerNorm)
+        assert isinstance(block.norm2, nn.LayerNorm)
 
 
 if __name__ == "__main__":
