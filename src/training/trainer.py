@@ -124,7 +124,7 @@ class Trainer:
         Returns:
             Training history dictionary.
         """
-        print(f"\n🚀 Starting training for {self.epochs} epochs...")
+        print(f"\n Starting training for {self.epochs} epochs...")
         print(f"   Checkpoints: {self.checkpoint_dir}")
         print()
 
@@ -165,7 +165,7 @@ class Trainer:
 
             # Epoch summary
             epoch_time = time.time() - epoch_start
-            best_marker = " ⭐" if is_best else ""
+            best_marker = " * " if is_best else ""
             print(
                 f"Epoch {epoch:3d}/{self.epochs} | "
                 f"Train: {train_metrics['total']:.4f} | "
@@ -175,7 +175,7 @@ class Trainer:
             )
 
         total_time = time.time() - total_start
-        print(f"\n✅ Training complete in {total_time/60:.1f} minutes")
+        print(f"\n Training complete in {total_time/60:.1f} minutes")
         print(f"   Best epoch: {self.best_epoch} (val_loss = {self.best_val_loss:.6f})")
 
         # Save final log
@@ -349,6 +349,6 @@ if __name__ == "__main__":
     print("\nRunning quick training test (2 epochs)...")
     history = trainer.train()
 
-    print(f"\n✅ Trainer working!")
+    print(f"\n Trainer working!")
     print(f"   Train losses: {history['train_loss']}")
     print(f"   Val losses: {history['val_loss']}")

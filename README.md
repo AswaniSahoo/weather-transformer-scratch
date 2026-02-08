@@ -69,11 +69,11 @@ This project implements a **Vision Transformer (ViT)** architecture for weather 
 
 | Metric | Model | Persistence | Improvement |
 |--------|-------|-------------|-------------|
-| **RMSE** | 0.3421 | 0.4156 | +17.7% ✅ |
-| **MAE** | 0.2634 | 0.3201 | +17.7% ✅ |
-| **ACC** | 0.892 | 0.834 | +7.0% ✅ |
+| **RMSE** | 0.197 | 0.270 | +27.0% ✅ |
+| **MAE** | 0.126 | 0.147 | +14.3% ✅ |
+| **ACC** | 0.955 | 0.912 | +4.7% ✅ |
 
-> *Results on held-out test set. Persistence baseline: predict Y(t+1) = X(t).*
+> *Results on 2020 test set. Persistence baseline: predict Y(t+1) = X(t).*
 
 ### Sample Prediction
 
@@ -92,7 +92,7 @@ weather-transformer-scratch/
 ├── src/
 │   ├── data/
 │   │   ├── download.py       # WeatherBench2 data download
-│   │   ├── preprocess.py     # Preprocessing & normalization
+│   │   ├── preprocessing.py  # Preprocessing & normalization
 │   │   └── dataset.py        # PyTorch Dataset & DataLoader
 │   ├── models/
 │   │   ├── patch_embedding.py
@@ -143,22 +143,29 @@ python -m venv .venv
 
 # Install dependencies
 pip install -r requirements.txt
+
+# For GPU training (NVIDIA GPUs), install PyTorch with CUDA:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ### 2. Download Data
 
 ```bash
-python src/data/download.py
-python src/data/preprocess.py
+python src/data/download.py --start-year 2015 --end-year 2020
+python src/data/preprocessing.py
 ```
 
 ### 3. Train Model
 
 ```bash
+# CPU training
 python scripts/train.py --config configs/default.yaml
 
-# With overrides
-python scripts/train.py --config configs/default.yaml --epochs 50 --device cuda
+# GPU training (recommended for RTX 3050/3060/4090 etc.)
+python scripts/train.py --config configs/default.yaml --device cuda
+
+# GPU training with custom epochs
+python scripts/train.py --config configs/default.yaml --device cuda --epochs 50
 ```
 
 ### 4. Evaluate
