@@ -20,7 +20,7 @@ import yaml
 
 
 # WeatherBench2 GCS path for ERA5 data
-GCS_PATH = "gs://weatherbench2/datasets/era5/1959-2023-6h-64x32_equiangular_conservative.zarr"
+GCS_PATH = "gs://weatherbench2/datasets/era5/1959-2022-6h-64x32_equiangular_conservative.zarr"
 
 # Default variables to download
 DEFAULT_VARIABLES = {
@@ -90,7 +90,11 @@ def download_weatherbench2(
     
     # Open the zarr dataset from GCS
     # This uses gcsfs under the hood for anonymous access
-    ds = xr.open_zarr(GCS_PATH, consolidated=True)
+    import gcsfs
+    fs = gcsfs.GCSFileSystem(token='anon')
+    store = fs.get_mapper(GCS_PATH)
+    # consolidated=False since .zmetadata may not exist in all datasets
+    ds = xr.open_zarr(store, consolidated=False)
     
     print(f"Full dataset shape: {dict(ds.dims)}")
     print(f"Available variables: {list(ds.data_vars)}")
@@ -113,7 +117,7 @@ def download_weatherbench2(
     # Try to get temperature at 850 hPa
     if "temperature" in available_vars:
         if "level" in ds_subset["temperature"].dims:
-            temp = ds_subset["temperature"].sel(level=850)
+            temp = ds_subset["temperature"].sel(level=850, drop=True)
             temp = temp.rename("t850")
             selected_vars.append(temp)
             print(f"Selected: temperature at 850 hPa -> t850")
@@ -121,7 +125,7 @@ def download_weatherbench2(
     # Try to get geopotential at 500 hPa
     if "geopotential" in available_vars:
         if "level" in ds_subset["geopotential"].dims:
-            geo = ds_subset["geopotential"].sel(level=500)
+            geo = ds_subset["geopotential"].sel(level=500, drop=True)
             geo = geo.rename("z500")
             selected_vars.append(geo)
             print(f"Selected: geopotential at 500 hPa -> z500")
@@ -151,7 +155,8 @@ def download_weatherbench2(
         )
     
     # Merge selected variables into a single dataset
-    ds_final = xr.merge(selected_vars)
+    # Use compat='override' to handle any coordinate mismatches
+    ds_final = xr.merge(selected_vars, compat='override')
     
     print(f"\nFinal dataset variables: {list(ds_final.data_vars)}")
     print(f"Final dataset shape: {dict(ds_final.dims)}")
