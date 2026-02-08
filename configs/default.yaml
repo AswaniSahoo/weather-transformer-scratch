@@ -1,0 +1,71 @@
+# ============================================
+# Weather Transformer — Default Configuration
+# ============================================
+
+# --- Data ---
+data:
+  # WeatherBench2 GCS path
+  source: "gs://weatherbench2/datasets/era5/1959-2023-6h-64x32_equiangular_conservative.zarr"
+  variables:
+    - "temperature"          # t850
+    - "geopotential"         # z500
+    - "u_component_of_wind"  # u10
+    - "v_component_of_wind"  # v10
+  pressure_levels:
+    temperature: 850
+    geopotential: 500
+  # Time range
+  train_years: [2015, 2018]   # inclusive
+  val_years: [2019, 2019]
+  test_years: [2020, 2020]
+  # Forecast step
+  lead_time_hours: 6
+  # Grid
+  lat_size: 32
+  lon_size: 64
+
+# --- Model ---
+model:
+  patch_size: 4
+  embed_dim: 256
+  num_heads: 8
+  num_layers: 6
+  mlp_ratio: 4.0      # MLP hidden dim = embed_dim * mlp_ratio
+  dropout: 0.1
+  in_channels: 4       # number of weather variables
+  out_channels: 4
+
+# --- Training ---
+training:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  gradient_clip: 1.0
+  # Scheduler
+  warmup_epochs: 5
+  min_lr: 1.0e-6
+  # Checkpointing
+  save_every: 10
+  checkpoint_dir: "results/checkpoints"
+
+# --- Physics Loss ---
+loss:
+  mse_weight: 1.0
+  smoothness_weight: 0.1
+  conservation_weight: 0.05
+
+# --- Evaluation ---
+evaluation:
+  metrics:
+    - "rmse"
+    - "mae"
+    - "acc"    # anomaly correlation coefficient
+
+# --- Paths ---
+paths:
+  data_dir: "data/raw"
+  processed_dir: "data/processed"
+  results_dir: "results"
+  figures_dir: "results/figures"
+  log_file: "results/training_log.csv"
