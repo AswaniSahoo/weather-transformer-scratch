@@ -17,6 +17,11 @@ from src.models.positional_encoding import (
 from src.models.attention import MultiHeadSelfAttention
 from src.models.transformer_block import TransformerBlock, MLP
 from src.models.weather_transformer import WeatherTransformer
+from src.models.physics_loss import (
+    PhysicsInformedLoss,
+    SpatialSmoothnessLoss,
+    ConservationLoss,
+)
 
 
 # ============================================================
@@ -424,6 +429,110 @@ class TestWeatherTransformer:
         output.sum().backward()
         assert model_input.grad is not None
         assert model_input.grad.shape == model_input.shape
+
+
+# ============================================================
+# Physics-Informed Loss Tests
+# ============================================================
+
+class TestSpatialSmoothnessLoss:
+    """Tests for SpatialSmoothnessLoss."""
+
+    def test_smooth_input_low_loss(self):
+        """A perfectly uniform field should have near-zero smoothness loss."""
+        smooth = torch.ones(2, 4, 32, 64) * 5.0
+        loss = SpatialSmoothnessLoss()(smooth)
+        assert loss.item() < 1e-6
+
+    def test_noisy_input_higher_loss(self):
+        """A noisy field should have higher smoothness loss than a smooth one."""
+        smooth = torch.ones(2, 4, 32, 64)
+        noisy = torch.randn(2, 4, 32, 64)
+        loss_fn = SpatialSmoothnessLoss()
+        assert loss_fn(noisy).item() > loss_fn(smooth).item()
+
+    def test_gradient_flow(self):
+        """Loss should be differentiable."""
+        x = torch.randn(2, 4, 32, 64, requires_grad=True)
+        loss = SpatialSmoothnessLoss()(x)
+        loss.backward()
+        assert x.grad is not None
+
+
+class TestConservationLoss:
+    """Tests for ConservationLoss."""
+
+    def test_identical_means_zero_loss(self):
+        """If pred and target have same global mean, loss should be ~0."""
+        x = torch.randn(2, 4, 32, 64)
+        loss = ConservationLoss()(x, x)
+        assert loss.item() < 1e-6
+
+    def test_different_means_nonzero_loss(self):
+        """If pred and target have different means, loss should be > 0."""
+        pred = torch.ones(2, 4, 32, 64) * 10.0
+        target = torch.zeros(2, 4, 32, 64)
+        loss = ConservationLoss()(pred, target)
+        assert loss.item() > 0
+
+    def test_gradient_flow(self):
+        """Loss should be differentiable."""
+        pred = torch.randn(2, 4, 32, 64, requires_grad=True)
+        target = torch.randn(2, 4, 32, 64)
+        loss = ConservationLoss()(pred, target)
+        loss.backward()
+        assert pred.grad is not None
+
+
+class TestPhysicsInformedLoss:
+    """Tests for combined PhysicsInformedLoss."""
+
+    @pytest.fixture
+    def loss_fn(self):
+        return PhysicsInformedLoss(
+            mse_weight=1.0, smoothness_weight=0.1, conservation_weight=0.05
+        )
+
+    def test_returns_dict(self, loss_fn):
+        """Loss should return dict with total, mse, smoothness, conservation."""
+        pred = torch.randn(2, 4, 32, 64)
+        target = torch.randn(2, 4, 32, 64)
+        result = loss_fn(pred, target)
+        assert "total" in result
+        assert "mse" in result
+        assert "smoothness" in result
+        assert "conservation" in result
+
+    def test_total_is_weighted_sum(self, loss_fn):
+        """Total should approximately equal weighted sum of components."""
+        pred = torch.randn(2, 4, 32, 64)
+        target = torch.randn(2, 4, 32, 64)
+        result = loss_fn(pred, target)
+        expected = (
+            1.0 * result["mse"]
+            + 0.1 * result["smoothness"]
+            + 0.05 * result["conservation"]
+        )
+        assert torch.allclose(result["total"], expected, atol=1e-5)
+
+    def test_gradient_flows_through_total(self, loss_fn):
+        """Backward on total loss should produce gradients."""
+        pred = torch.randn(2, 4, 32, 64, requires_grad=True)
+        target = torch.randn(2, 4, 32, 64)
+        result = loss_fn(pred, target)
+        result["total"].backward()
+        assert pred.grad is not None
+
+    def test_zero_weights_disable_components(self):
+        """Setting a weight to 0 should effectively disable that component."""
+        loss_fn = PhysicsInformedLoss(
+            mse_weight=1.0, smoothness_weight=0.0, conservation_weight=0.0
+        )
+        pred = torch.randn(2, 4, 32, 64)
+        target = torch.randn(2, 4, 32, 64)
+        result = loss_fn(pred, target)
+        # Total should equal just MSE
+        assert torch.allclose(result["total"], result["mse"], atol=1e-5)
 
 
 if __name__ == "__main__":
