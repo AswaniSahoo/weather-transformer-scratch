@@ -14,6 +14,7 @@ from src.models.positional_encoding import (
     LearnablePositionalEncoding,
     SinusoidalPositionalEncoding,
 )
+from src.models.attention import MultiHeadSelfAttention
 
 
 # ============================================================
@@ -200,6 +201,65 @@ class TestSinusoidalPositionalEncoding:
         """Different spatial positions should have different encodings."""
         pe = sinusoidal_pe.position_embeddings[0]  # (N, D)
         assert not torch.allclose(pe[0], pe[1])
+
+
+# ============================================================
+# Multi-Head Self-Attention Tests
+# ============================================================
+NUM_HEADS = 8
+
+
+class TestMultiHeadSelfAttention:
+    """Tests for MultiHeadSelfAttention module."""
+
+    @pytest.fixture
+    def mhsa(self):
+        return MultiHeadSelfAttention(
+            embed_dim=EMBED_DIM, num_heads=NUM_HEADS, dropout=0.0
+        )
+
+    @pytest.fixture
+    def attn_input(self):
+        return torch.randn(BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_output_shape(self, mhsa, attn_input):
+        """Output shape must match input shape (B, N, D)."""
+        output = mhsa(attn_input)
+        assert output.shape == (BATCH_SIZE, N_PATCHES, EMBED_DIM)
+
+    def test_attention_weights_shape(self, mhsa, attn_input):
+        """Attention weights should be (B, num_heads, N, N)."""
+        _, attn_weights = mhsa(attn_input, return_attention=True)
+        assert attn_weights.shape == (BATCH_SIZE, NUM_HEADS, N_PATCHES, N_PATCHES)
+
+    def test_attention_weights_sum_to_one(self, mhsa, attn_input):
+        """Each row of attention weights should sum to 1 (softmax)."""
+        _, attn_weights = mhsa(attn_input, return_attention=True)
+        row_sums = attn_weights.sum(dim=-1)  # (B, heads, N)
+        assert torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-5)
+
+    def test_gradient_flow(self, mhsa, attn_input):
+        """Gradients should flow through attention."""
+        attn_input.requires_grad_(True)
+        output = mhsa(attn_input)
+        output.sum().backward()
+        assert attn_input.grad is not None
+
+    def test_no_nn_multiheadattention(self, mhsa):
+        """Verify we're NOT using PyTorch's built-in MHA."""
+        for module in mhsa.modules():
+            assert not isinstance(module, nn.MultiheadAttention), (
+                "Must implement attention from scratch!"
+            )
+
+    def test_head_dim_calculation(self, mhsa):
+        """head_dim should be embed_dim // num_heads."""
+        assert mhsa.head_dim == EMBED_DIM // NUM_HEADS
+
+    def test_indivisible_heads_raises(self):
+        """embed_dim not divisible by num_heads should raise."""
+        with pytest.raises(AssertionError):
+            MultiHeadSelfAttention(embed_dim=256, num_heads=7)
 
 
 if __name__ == "__main__":
