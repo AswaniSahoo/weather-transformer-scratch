@@ -176,11 +176,16 @@ def create_input_target_pairs(
     # Number of valid samples (we lose lead_time_steps at the end)
     n_samples = n_times - lead_time_steps
     
-    # Stack variables into single array: (time, channels, lat, lon)
+    # Stack variables into single array: (time, channels, ...)
+    # xarray data has shape (time, lon, lat) so we need to transpose to (time, channels, lat, lon)
+    # Model expects (N, C, H, W) = (N, C, lat, lon) = (N, C, 32, 64)
     data_stack = np.stack(
         [ds[var].values for var in variables],
         axis=1  # Stack along channel dimension
     )
+    # Transpose from (time, channels, lon, lat) to (time, channels, lat, lon)
+    # i.e., swap the last two dimensions
+    data_stack = np.transpose(data_stack, (0, 1, 3, 2))
     
     # Create input-target pairs
     inputs = data_stack[:n_samples]  # X(t) for t = 0, 1, ..., n_samples-1
