@@ -165,7 +165,7 @@ class Trainer:
 
             # Epoch summary
             epoch_time = time.time() - epoch_start
-            best_marker = " * " if is_best else ""
+            best_marker = " ⭐ " if is_best else ""
             print(
                 f"Epoch {epoch:3d}/{self.epochs} | "
                 f"Train: {train_metrics['total']:.4f} | "
@@ -293,7 +293,7 @@ class Trainer:
 
     def load_checkpoint(self, checkpoint_path: str):
         """Load a checkpoint to resume training."""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device,weights_only=False)
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
