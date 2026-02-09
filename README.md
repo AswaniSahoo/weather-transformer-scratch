@@ -101,7 +101,7 @@ This project implements a **Vision Transformer (ViT)** architecture for weather 
 | Training time | ~12 min (NVIDIA GPU) |
 | Best epoch | 49 |
 | Best val loss | 0.0699 |
-| Convergence | Smooth — every epoch improved ⭐ |
+| Convergence | Smooth = every epoch improved ⭐ |
 
 ### Sample Prediction
 
