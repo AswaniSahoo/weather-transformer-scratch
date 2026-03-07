@@ -14,12 +14,12 @@
 
 This project implements a **Vision Transformer (ViT)** architecture for weather forecasting, trained on ERA5 reanalysis data from WeatherBench2. Key features:
 
-- ✅ **Every component built from scratch** — no `nn.MultiheadAttention`
-- ✅ **Physics-informed loss** — MSE + spatial smoothness + conservation constraints
-- ✅ **Real climate data** — WeatherBench2 / ERA5 at 5.625° resolution (2015–2020)
-- ✅ **Comprehensive evaluation** — RMSE, MAE, ACC vs persistence baseline
-- ✅ **Production-ready** — Config-driven training, checkpointing, logging
-- ✅ **74 unit tests** — Full test coverage across data, model, and metrics
+- ✅ **Every component built from scratch** - no `nn.MultiheadAttention`
+- ✅ **Physics-informed loss** - MSE + spatial smoothness + conservation constraints
+- ✅ **Real climate data** - WeatherBench2 / ERA5 at 5.625° resolution (2015–2020)
+- ✅ **Comprehensive evaluation** - RMSE, MAE, ACC vs persistence baseline
+- ✅ **Production-ready** - Config-driven training, checkpointing, logging
+- ✅ **74 unit tests** - Full test coverage across data, model, and metrics
 
 ---
 
