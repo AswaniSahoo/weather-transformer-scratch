@@ -168,10 +168,7 @@ def create_input_target_pairs(
         Shape: (N_samples, C, H, W) where C = number of variables
     """
     variables = list(ds.data_vars)
-    n_vars = len(variables)
     n_times = len(ds.time)
-    n_lat = len(ds.latitude) if "latitude" in ds.dims else len(ds.lat)
-    n_lon = len(ds.longitude) if "longitude" in ds.dims else len(ds.lon)
     
     # Number of valid samples (we lose lead_time_steps at the end)
     n_samples = n_times - lead_time_steps

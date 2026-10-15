@@ -6,7 +6,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-74%20passed-brightgreen.svg)]()
+[![CI](https://github.com/AswaniSahoo/weather-transformer-scratch/actions/workflows/ci.yml/badge.svg)](https://github.com/AswaniSahoo/weather-transformer-scratch/actions/workflows/ci.yml)
 
 ---
 
@@ -168,8 +168,8 @@ python -m venv .venv
 .venv\Scripts\activate  # Windows
 # source .venv/bin/activate  # Linux/Mac
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (requirements-dev.txt adds pytest and ruff)
+pip install -r requirements-dev.txt
 
 # For GPU training (NVIDIA GPUs), install PyTorch with CUDA:
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
@@ -204,7 +204,8 @@ python -m src.evaluation.evaluate --checkpoint checkpoints/best_model.pt
 ### 5. Run Tests
 
 ```bash
-pytest tests/ -v
+pytest
+ruff check .
 ```
 
 ---
@@ -254,7 +255,7 @@ data:
 
 ## 🧪 Testing
 
-The project includes **74 comprehensive unit tests** across 3 test files:
+The project includes **74 unit tests** across 3 test files, run by GitHub Actions on every push to `main` and every pull request:
 
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
@@ -264,13 +265,13 @@ The project includes **74 comprehensive unit tests** across 3 test files:
 
 ```bash
 # Run all tests
-pytest tests/ -v
+pytest
 
 # Run specific test file
 pytest tests/test_model.py -v
 
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
+# Lint
+ruff check .
 ```
 
 ---

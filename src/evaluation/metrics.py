@@ -10,7 +10,6 @@ Also implements a Persistence Baseline: predict Y(t+1) = X(t).
 """
 
 import torch
-import numpy as np
 from typing import Dict
 
 

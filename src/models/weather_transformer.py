@@ -10,7 +10,7 @@ Predicts the next weather state (t+6h) from the current state.
 
 import torch
 import torch.nn as nn
-from typing import Dict, Optional, Tuple
+from typing import Dict
 
 from src.models.patch_embedding import PatchEmbedding
 from src.models.positional_encoding import LearnablePositionalEncoding
@@ -239,7 +239,7 @@ if __name__ == "__main__":
     # Test backward pass
     loss = out.sum()
     loss.backward()
-    print(f"Backward pass: ✅")
+    print("Backward pass: ✅")
 
     # Test with attention weights
     out, attns = model(x, return_attention=True)
