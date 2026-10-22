@@ -103,11 +103,6 @@ def _plot_with_cartopy(
         subplot_kw={"projection": ccrs.PlateCarree()}
     )
 
-    # Define lat/lon bounds based on data shape
-    H, W = input_2d.shape
-    lons = np.linspace(-180, 180, W)
-    lats = np.linspace(-90, 90, H)
-
     titles = [
         f"Input (t) — {var_name}",
         f"Prediction (t+6h) — {var_name}",

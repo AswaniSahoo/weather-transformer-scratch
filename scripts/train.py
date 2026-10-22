@@ -12,13 +12,12 @@ import sys
 from pathlib import Path
 
 import yaml
-import torch
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models.weather_transformer import WeatherTransformer
-from src.data.dataset import WeatherBenchDataset, create_dataloaders
+from src.data.dataset import create_dataloaders
 from src.training.trainer import Trainer
 
 
@@ -100,7 +99,7 @@ def main():
     )
 
     # Train
-    history = trainer.train()
+    trainer.train()
 
     print("\n✅ Training finished!")
     print(f"Best validation loss: {trainer.best_val_loss:.6f}")

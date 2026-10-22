@@ -8,7 +8,7 @@ transformer's self-attention mechanism.
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import torch
 
@@ -169,7 +169,7 @@ def plot_attention_heads_comparison(
         ax = axes[row, col]
 
         attn_map = attn[head_idx, query_pos].reshape(n_patches_h, n_patches_w)
-        im = ax.imshow(attn_map, cmap="hot", vmin=0)
+        ax.imshow(attn_map, cmap="hot", vmin=0)
         ax.scatter([query_w], [query_h], c="cyan", s=80, marker="*",
                   edgecolors="white", linewidths=1.5)
         ax.set_title(f"Head {head_idx}")
