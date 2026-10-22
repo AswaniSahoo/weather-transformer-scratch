@@ -71,20 +71,20 @@ This project implements a **Vision Transformer (ViT)** architecture for weather 
 
 | Metric | Model | Persistence | Improvement |
 |--------|-------|-------------|-------------|
-| **RMSE** | 0.197 | 0.270 | **27.0% ✅** |
-| **MAE** | 0.126 | 0.147 | **13.9% ✅** |
-| **ACC** | 0.955 | 0.912 | **+4.3 pts ✅** |
+| **RMSE** | 0.1960 | 0.2681 | **27% ✅** |
+| **MAE** | 0.1260 | 0.1460 | **14% ✅** |
+| **ACC** | 0.9556 | 0.9138 | **+4.2 pts ✅** |
 
-> *Evaluated on 1,316 test samples from year 2020. Persistence baseline: predict Y(t+1) = X(t).*
+> *Evaluated on 1,463 test samples from year 2020. Persistence baseline: predict Y(t+1) = X(t).*
 
 ### Per-Variable RMSE
 
 | Variable | RMSE | Description |
 |----------|------|-------------|
-| t850 | **0.083** | Temperature at 850 hPa — *best predicted* |
+| t850 | **0.084** | Temperature at 850 hPa, *best predicted* |
 | z500 | **0.067** | Geopotential at 500 hPa — *smoothest field* |
-| u10 | **0.242** | U-wind at 10m — *more chaotic* |
-| v10 | **0.292** | V-wind at 10m — *hardest to predict* |
+| u10 | **0.240** | U-wind at 10m, *more chaotic* |
+| v10 | **0.291** | V-wind at 10m, *hardest to predict* |
 
 > Wind components (u10, v10) have higher RMSE because wind fields are inherently more turbulent and less spatially smooth than temperature and geopotential fields.
 
@@ -93,9 +93,9 @@ This project implements a **Vision Transformer (ViT)** architecture for weather 
 | Property | Value |
 |----------|-------|
 | Parameters | 4,805,440 |
-| Training samples | 6,136 (2015–2018) |
-| Validation samples | 1,315 (2019) |
-| Test samples | 1,316 (2020) |
+| Training samples | 5,843 (2015–2018) |
+| Validation samples | 1,459 (2019) |
+| Test samples | 1,463 (2020) |
 | Epochs | 50 |
 | Training time | ~12 min (NVIDIA GPU) |
 | Best epoch | 49 |
