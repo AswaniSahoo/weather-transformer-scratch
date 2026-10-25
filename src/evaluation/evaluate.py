@@ -135,7 +135,7 @@ def print_results(results: Dict[str, Dict[str, float]]):
     # Per-variable RMSE
     var_keys = [k for k in model_m if k.startswith("rmse_")]
     if var_keys:
-        print(f"\nPer-Variable RMSE:")
+        print("\nPer-Variable RMSE:")
         for key in var_keys:
             print(f"  {key:<23} {model_m[key]:>12.6f}")
 

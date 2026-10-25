@@ -137,4 +137,4 @@ if __name__ == "__main__":
     n_params = sum(p.numel() for p in mhsa.parameters())
     print(f"Parameters: {n_params:,}")
 
-    print(f"\n✅ All shapes correct!")
+    print("\n✅ All shapes correct!")

@@ -167,4 +167,4 @@ if __name__ == "__main__":
     n_params = sum(p.numel() for p in block.parameters())
     print(f"Parameters: {n_params:,}")
 
-    print(f"\n✅ Transformer block working!")
+    print("\n✅ Transformer block working!")
