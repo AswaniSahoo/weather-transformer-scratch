@@ -24,6 +24,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from src.evaluation.metrics import latitude_weights
 from src.models.physics_loss import PhysicsInformedLoss
 
 
@@ -114,10 +115,15 @@ class Trainer:
 
         # Loss function (physics-informed), from the top-level `loss` section
         loss_cfg = config.get("loss", {})
+        lat_weights = None
+        if loss_cfg.get("latitude_weighted", False):
+            lat_weights = latitude_weights(config["data"]["lat_size"])
         self.loss_fn = PhysicsInformedLoss(
             mse_weight=loss_cfg.get("mse_weight", 1.0),
             smoothness_weight=loss_cfg.get("smoothness_weight", 0.1),
             conservation_weight=loss_cfg.get("conservation_weight", 0.05),
+            lat_weights=lat_weights,
+            periodic_lon=loss_cfg.get("periodic_longitude", False),
         ).to(self.device)
 
         # Optimizer

@@ -96,6 +96,7 @@ def main():
         num_layers=model_cfg.get("num_layers", 6),
         mlp_ratio=model_cfg.get("mlp_ratio", 4.0),
         dropout=model_cfg.get("dropout", 0.1),
+        residual=model_cfg.get("residual", False),
     )
 
     print(f"Model parameters: {model.count_parameters():,}")

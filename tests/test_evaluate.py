@@ -151,6 +151,25 @@ def test_regional_scores_only_see_their_region_and_season():
     assert india["rest_of_year"]["model"]["rmse"] == pytest.approx(1.0)
 
 
+def test_load_model_uses_checkpoint_architecture(workspace, tmp_path):
+    """A residual checkpoint must load as residual, whatever --config says."""
+    _, _, config_path, _ = workspace
+    config = yaml.safe_load(config_path.read_text())
+    trained_config = {**config, "model": {**config["model"], "residual": True}}
+    model = WeatherTransformer(
+        img_height=H, img_width=W, patch_size=4, embed_dim=16, num_heads=2,
+        num_layers=1, residual=True,
+    )
+    path = tmp_path / "residual.pt"
+    torch.save({"model_state_dict": model.state_dict(), "config": trained_config}, path)
+
+    loaded = evaluate.load_model(str(path), config, "cpu")
+
+    assert loaded.residual
+    x = torch.randn(1, 4, H, W)
+    assert torch.equal(loaded(x), model.eval()(x))
+
+
 def test_climatology_uses_the_same_hour_of_day():
     train_times = six_hourly("2017-01-01T00", TWO_YEARS)
     hour = (np.arange(TWO_YEARS) % 4) * 6.0

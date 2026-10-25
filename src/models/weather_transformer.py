@@ -35,6 +35,10 @@ class WeatherTransformer(nn.Module):
         num_layers: Number of transformer encoder blocks.
         mlp_ratio: MLP hidden dimension = embed_dim * mlp_ratio.
         dropout: Dropout rate throughout the model.
+        residual: Predict the 6-hour change and add it to the input
+            (X(t+1) = X(t) + f(X(t))) instead of the full next state. The
+            prediction head starts at zero, so the untrained model is exactly
+            the persistence forecast.
     """
 
     def __init__(
@@ -49,8 +53,15 @@ class WeatherTransformer(nn.Module):
         num_layers: int = 6,
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
+        residual: bool = False,
     ):
         super().__init__()
+
+        if residual and in_channels != out_channels:
+            raise ValueError(
+                f"residual=True needs in_channels == out_channels, "
+                f"got {in_channels} and {out_channels}"
+            )
 
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -59,6 +70,7 @@ class WeatherTransformer(nn.Module):
         self.patch_size = patch_size
         self.embed_dim = embed_dim
         self.num_layers = num_layers
+        self.residual = residual
 
         # --- Step 1: Patch Embedding ---
         self.patch_embedding = PatchEmbedding(
@@ -107,6 +119,10 @@ class WeatherTransformer(nn.Module):
 
         # Initialize weights
         self._init_weights()
+        if residual:
+            # Zero change at initialization: start from persistence
+            nn.init.zeros_(self.prediction_head.weight)
+            nn.init.zeros_(self.prediction_head.bias)
 
     def _init_weights(self):
         """Initialize model weights using Xavier/Glorot uniform."""
@@ -135,6 +151,7 @@ class WeatherTransformer(nn.Module):
         """
         B = x.shape[0]
         attention_weights = []
+        state = x
 
         # Step 1: Patch embedding (B, C, H, W) → (B, N, embed_dim)
         x = self.patch_embedding(x)
@@ -159,6 +176,10 @@ class WeatherTransformer(nn.Module):
         # Step 6: Reshape back to image grid
         # (B, N, P*P*C_out) → (B, C_out, H, W)
         x = self._patches_to_image(x, B)
+
+        # Step 7 (optional): the head predicted a tendency; add the current state
+        if self.residual:
+            x = x + state
 
         if return_attention:
             return x, attention_weights
@@ -206,6 +227,7 @@ class WeatherTransformer(nn.Module):
             "patch_size": self.patch_size,
             "embed_dim": self.embed_dim,
             "num_layers": self.num_layers,
+            "residual": self.residual,
             "n_patches": self.n_patches,
             "total_params": self.count_parameters(),
         }

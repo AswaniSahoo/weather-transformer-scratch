@@ -22,6 +22,7 @@ from src.models.physics_loss import (
     SpatialSmoothnessLoss,
     ConservationLoss,
 )
+from src.evaluation.metrics import latitude_weights
 
 
 # ============================================================
@@ -431,6 +432,42 @@ class TestWeatherTransformer:
         assert model_input.grad.shape == model_input.shape
 
 
+class TestResidualWeatherTransformer:
+    """Tests for tendency (residual) prediction: X(t+1) = X(t) + f(X(t))."""
+
+    @staticmethod
+    def make(**kwargs):
+        return WeatherTransformer(
+            in_channels=IN_CHANNELS, out_channels=IN_CHANNELS,
+            img_height=IMG_HEIGHT, img_width=IMG_WIDTH, patch_size=PATCH_SIZE,
+            embed_dim=32, num_heads=4, num_layers=2, dropout=0.0, **kwargs,
+        )
+
+    def test_untrained_model_is_persistence(self):
+        """The zero-initialized head predicts no change."""
+        model = self.make(residual=True)
+        x = torch.randn(2, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+        assert torch.equal(model(x), x)
+
+    def test_learns_a_change(self):
+        """After one optimizer step the prediction departs from persistence."""
+        model = self.make(residual=True)
+        x = torch.randn(2, IN_CHANNELS, IMG_HEIGHT, IMG_WIDTH)
+        loss = (model(x) - (x + 1.0)).pow(2).mean()
+        loss.backward()
+        torch.optim.SGD(model.parameters(), lr=0.1).step()
+        assert not torch.allclose(model(x), x)
+
+    def test_same_weights_as_default_model(self):
+        """Residual adds no parameters, so state dicts have the same keys."""
+        assert self.make().state_dict().keys() == self.make(residual=True).state_dict().keys()
+        assert self.make(residual=True).get_config()["residual"] is True
+
+    def test_mismatched_channels_raise(self):
+        with pytest.raises(ValueError):
+            WeatherTransformer(in_channels=4, out_channels=2, residual=True)
+
+
 # ============================================================
 # Physics-Informed Loss Tests
 # ============================================================
@@ -458,6 +495,13 @@ class TestSpatialSmoothnessLoss:
         loss.backward()
         assert x.grad is not None
 
+    def test_periodic_lon_sees_the_seam(self):
+        """A longitude ramp is smooth except where 360° wraps back to 0°."""
+        ramp = torch.linspace(0, 1, 64).expand(1, 1, 32, 64)
+        plain = SpatialSmoothnessLoss()(ramp)
+        periodic = SpatialSmoothnessLoss(periodic_lon=True)(ramp)
+        assert periodic.item() > 10 * plain.item()
+
 
 class TestConservationLoss:
     """Tests for ConservationLoss."""
@@ -482,6 +526,20 @@ class TestConservationLoss:
         loss = ConservationLoss()(pred, target)
         loss.backward()
         assert pred.grad is not None
+
+    def test_area_weighted_global_mean(self):
+        """With weights, a change in the polar row barely moves the global mean."""
+        w = latitude_weights(32)
+        pred = torch.zeros(1, 1, 32, 64)
+        pred[:, :, 0, :] = 1.0  # southernmost row only
+        target = torch.zeros(1, 1, 32, 64)
+
+        unweighted = ConservationLoss()(pred, target)
+        weighted = ConservationLoss(lat_weights=w)(pred, target)
+
+        assert torch.isclose(unweighted, torch.tensor((1 / 32) ** 2))
+        assert torch.isclose(weighted, (w[0] / 32) ** 2)
+        assert weighted < unweighted / 100
 
 
 class TestPhysicsInformedLoss:
@@ -533,6 +591,24 @@ class TestPhysicsInformedLoss:
         result = loss_fn(pred, target)
         # Total should equal just MSE
         assert torch.allclose(result["total"], result["mse"], atol=1e-5)
+
+    def test_latitude_weighted_mse(self):
+        """MSE weights each row by its area; weights need not be pre-normalized."""
+        w = latitude_weights(32) * 3.0
+        pred = torch.randn(2, 4, 32, 64)
+        target = torch.randn(2, 4, 32, 64)
+
+        result = PhysicsInformedLoss(lat_weights=w)(pred, target)
+
+        expected = ((pred - target) ** 2 * (w / w.mean()).view(-1, 1)).mean()
+        assert torch.allclose(result["mse"], expected)
+
+    def test_defaults_match_plain_mse(self):
+        """Without the geometry options, MSE is the ordinary unweighted MSE."""
+        pred = torch.randn(2, 4, 32, 64)
+        target = torch.randn(2, 4, 32, 64)
+        result = PhysicsInformedLoss()(pred, target)
+        assert torch.allclose(result["mse"], nn.MSELoss()(pred, target))
 
 
 if __name__ == "__main__":

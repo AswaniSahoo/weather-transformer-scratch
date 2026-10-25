@@ -45,6 +45,11 @@ FORECASTS = ("model", "persistence", "anomaly_persistence")
 
 def load_model(checkpoint_path: str, config: dict, device: str) -> WeatherTransformer:
     """Load a trained model from checkpoint."""
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    # Rebuild the architecture from the config the checkpoint was trained with
+    # (if saved), so options like `residual` always match the weights.
+    config = checkpoint.get("config") or config
     model_cfg = config.get("model", {})
     data_cfg = config.get("data", {})
 
@@ -59,9 +64,9 @@ def load_model(checkpoint_path: str, config: dict, device: str) -> WeatherTransf
         num_layers=model_cfg.get("num_layers", 6),
         mlp_ratio=model_cfg.get("mlp_ratio", 4.0),
         dropout=0.0,  # No dropout at inference
+        residual=model_cfg.get("residual", False),
     )
 
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()

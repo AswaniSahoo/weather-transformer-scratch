@@ -32,6 +32,8 @@ model:
   dropout: 0.1
   in_channels: 4       # number of weather variables
   out_channels: 4
+  # true: predict the 6-hour change and add it to the input (starts as persistence)
+  residual: false
 
 # --- Training ---
 training:
@@ -52,6 +54,9 @@ loss:
   mse_weight: 1.0
   smoothness_weight: 0.1
   conservation_weight: 0.05
+  # Spherical geometry (false = the reported run)
+  latitude_weighted: false    # cos(latitude) area weights in MSE + conservation
+  periodic_longitude: false   # smoothness also links the 0°/360° seam
 
 # --- Paths ---
 paths:

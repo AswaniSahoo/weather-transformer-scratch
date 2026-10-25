@@ -62,6 +62,21 @@ class TestTrainerConfig:
         assert trainer.save_every == 3
         assert trainer.checkpoint_dir == tmp_path / "ckpt"
 
+    def test_sphere_aware_loss_options(self, default_config):
+        default_config["data"]["lat_size"] = 8
+        default_config["loss"].update({"latitude_weighted": True, "periodic_longitude": True})
+        default_config["training"]["epochs"] = 1
+        trainer = Trainer(tiny_model(), tiny_loader(), tiny_loader(), default_config, "cpu")
+
+        assert trainer.loss_fn.lat_weights.shape == (8,)
+        assert trainer.loss_fn.smoothness_loss.periodic_lon
+        trainer.train()  # runs end to end with the options on
+
+    def test_geometry_options_off_by_default(self, default_config):
+        trainer = Trainer(tiny_model(), tiny_loader(), tiny_loader(), default_config, "cpu")
+        assert trainer.loss_fn.lat_weights is None
+        assert not trainer.loss_fn.smoothness_loss.periodic_lon
+
     def test_short_run_writes_checkpoints_and_log(self, default_config, tmp_path):
         default_config["training"].update({"epochs": 2, "save_every": 1})
         trainer = Trainer(tiny_model(), tiny_loader(), tiny_loader(), default_config, "cpu")
