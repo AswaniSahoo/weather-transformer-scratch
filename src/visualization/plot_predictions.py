@@ -5,6 +5,11 @@ Creates side-by-side comparison plots:
     Input → Prediction → Ground Truth → Error
 
 Uses cartopy for proper geographic projections.
+
+Grid convention (WeatherBench2 equiangular grids): rows are latitude cell
+centres ascending from the South Pole, columns are longitude cell centres
+starting at 0°E and increasing eastward (0°, 5.625°, ..., 354.375° on the
+64x32 grid). Fields are re-centred to [-180°, 180°] before plotting.
 """
 
 import numpy as np
@@ -21,6 +26,35 @@ except ImportError:
     print("Warning: cartopy not installed. Using simple plots.")
 
 
+def recenter_longitudes(field: np.ndarray) -> Tuple[np.ndarray, List[float]]:
+    """
+    Re-centre a global field from 0..360°E onto a [-180°, 180°] map.
+
+    Drawing a WeatherBench2 array with extent=[-180, 180] places the 0°E column
+    at 180°W, shifting every feature 180° away from the coastlines. Column j is
+    centred on j * 360/W °E, so the cell straddling the dateline cannot be
+    drawn at [-180, 180] as a whole pixel. Each column is therefore split into
+    two half-cell pixels and rolled so the first pixel starts exactly at 180°W:
+    cell edges stay exact, and cartopy draws the image without regridding.
+
+    Args:
+        field: Array of shape (..., H, W), W even, first column centred on 0°E.
+
+    Returns:
+        (field, extent): the field with shape (..., H, 2W), and the extent
+        [-180, 180, -90, 90] for imshow(..., origin="lower").
+    """
+    width = field.shape[-1]
+    if width % 2:
+        raise ValueError(f"Expected an even number of longitudes, got {width}")
+
+    # Half-cell pixel p spans [(p - 1) * dlon/2, p * dlon/2] degrees east,
+    # so pixel width + 1 is the first one starting at 180°E (= 180°W).
+    halves = np.repeat(field, 2, axis=-1)
+    halves = np.roll(halves, -(width + 1), axis=-1)
+    return halves, [-180.0, 180.0, -90.0, 90.0]
+
+
 def plot_prediction_comparison(
     input_data: np.ndarray,
     prediction: np.ndarray,
@@ -30,10 +64,11 @@ def plot_prediction_comparison(
     save_path: Optional[str] = None,
     title: Optional[str] = None,
     figsize: Tuple[int, int] = (20, 12),
+    colorbar_label: Optional[str] = None,
 ) -> plt.Figure:
     """
     Plot side-by-side comparison of input, prediction, ground truth, and error.
-    
+
     Args:
         input_data: Input weather state (C, H, W) or (H, W).
         prediction: Model prediction (C, H, W) or (H, W).
@@ -43,7 +78,8 @@ def plot_prediction_comparison(
         save_path: Path to save the figure.
         title: Overall figure title.
         figsize: Figure size.
-        
+        colorbar_label: Optional label (e.g. units) for every colorbar.
+
     Returns:
         matplotlib Figure object.
     """
@@ -69,11 +105,11 @@ def plot_prediction_comparison(
     # Create figure
     if HAS_CARTOPY:
         fig = _plot_with_cartopy(
-            input_2d, pred_2d, target_2d, error, var_name, figsize
+            input_2d, pred_2d, target_2d, error, var_name, figsize, colorbar_label
         )
     else:
         fig = _plot_simple(
-            input_2d, pred_2d, target_2d, error, var_name, figsize
+            input_2d, pred_2d, target_2d, error, var_name, figsize, colorbar_label
         )
 
     if title:
@@ -96,6 +132,7 @@ def _plot_with_cartopy(
     error: np.ndarray,
     var_name: str,
     figsize: Tuple[int, int],
+    colorbar_label: Optional[str] = None,
 ) -> plt.Figure:
     """Create plot with cartopy geographic projections."""
     fig, axes = plt.subplots(
@@ -116,13 +153,11 @@ def _plot_with_cartopy(
     vmax = max(input_2d.max(), pred_2d.max(), target_2d.max())
 
     for idx, (ax, data, title) in enumerate(zip(axes.flat, data_list, titles)):
-        ax.set_global()
-        ax.coastlines(linewidth=0.5)
-        ax.add_feature(cfeature.BORDERS, linewidth=0.3, alpha=0.5)
+        data, extent = recenter_longitudes(data)
 
         if idx < 3:
             im = ax.imshow(
-                data, origin="lower", extent=[-180, 180, -90, 90],
+                data, origin="lower", extent=extent,
                 cmap="RdBu_r", vmin=vmin, vmax=vmax,
                 transform=ccrs.PlateCarree()
             )
@@ -130,13 +165,18 @@ def _plot_with_cartopy(
             # Error plot with diverging colormap centered at 0
             err_max = max(abs(error.min()), abs(error.max()))
             im = ax.imshow(
-                data, origin="lower", extent=[-180, 180, -90, 90],
+                data, origin="lower", extent=extent,
                 cmap="coolwarm", vmin=-err_max, vmax=err_max,
                 transform=ccrs.PlateCarree()
             )
 
+        # After imshow, which would otherwise widen the view to the image extent
+        ax.set_global()
+        ax.coastlines(linewidth=0.5)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.3, alpha=0.5)
+
         ax.set_title(title, fontsize=12, fontweight="bold")
-        plt.colorbar(im, ax=ax, shrink=0.6, pad=0.05)
+        plt.colorbar(im, ax=ax, shrink=0.6, pad=0.05, label=colorbar_label)
 
     return fig
 
@@ -148,6 +188,7 @@ def _plot_simple(
     error: np.ndarray,
     var_name: str,
     figsize: Tuple[int, int],
+    colorbar_label: Optional[str] = None,
 ) -> plt.Figure:
     """Create simple plot without cartopy."""
     fig, axes = plt.subplots(2, 2, figsize=figsize)
@@ -164,16 +205,20 @@ def _plot_simple(
     vmax = max(input_2d.max(), pred_2d.max(), target_2d.max())
 
     for idx, (ax, data, title) in enumerate(zip(axes.flat, data_list, titles)):
+        data, extent = recenter_longitudes(data)
+
         if idx < 3:
-            im = ax.imshow(data, cmap="RdBu_r", vmin=vmin, vmax=vmax, origin="lower")
+            im = ax.imshow(data, cmap="RdBu_r", vmin=vmin, vmax=vmax,
+                           origin="lower", extent=extent)
         else:
             err_max = max(abs(error.min()), abs(error.max()))
-            im = ax.imshow(data, cmap="coolwarm", vmin=-err_max, vmax=err_max, origin="lower")
+            im = ax.imshow(data, cmap="coolwarm", vmin=-err_max, vmax=err_max,
+                           origin="lower", extent=extent)
 
         ax.set_title(title, fontsize=12, fontweight="bold")
-        ax.set_xlabel("Longitude")
-        ax.set_ylabel("Latitude")
-        plt.colorbar(im, ax=ax, shrink=0.8)
+        ax.set_xlabel("Longitude (°E)")
+        ax.set_ylabel("Latitude (°N)")
+        plt.colorbar(im, ax=ax, shrink=0.8, label=colorbar_label)
 
     return fig
 
@@ -231,12 +276,13 @@ if __name__ == "__main__":
 
     variable_names = ["t850", "z500", "u10", "v10"]
 
+    # Synthetic noise: never save over results/figures/prediction_sample.png,
+    # which is the real-data figure shown in the README.
     fig = plot_prediction_comparison(
         input_data, prediction, target,
         variable_idx=0,
         variable_names=variable_names,
-        save_path="results/figures/prediction_sample.png",
-        title="Weather Transformer — 6h Forecast",
+        title="Weather Transformer — 6h Forecast (synthetic demo)",
     )
 
     print("✅ Prediction plot created!")
