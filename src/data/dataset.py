@@ -6,7 +6,7 @@ for training the Weather Transformer.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 import torch
@@ -31,7 +31,7 @@ class WeatherBenchDataset(Dataset):
         self,
         data_dir: str = "data/processed",
         split: str = "train",
-        transform: Optional[callable] = None,
+        transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     ):
         self.data_dir = Path(data_dir)
         self.split = split
@@ -97,20 +97,24 @@ def create_dataloaders(
     data_dir: str = "data/processed",
     batch_size: int = 32,
     num_workers: int = 0,
-    pin_memory: bool = True,
+    pin_memory: Optional[bool] = None,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Create train, validation, and test DataLoaders.
-    
+
     Args:
         data_dir: Path to processed data directory
         batch_size: Batch size for all loaders
         num_workers: Number of worker processes for data loading
         pin_memory: Whether to pin memory for faster GPU transfer
-        
+            (default: only when CUDA is available)
+
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
+    if pin_memory is None:
+        pin_memory = torch.cuda.is_available()
+
     train_dataset = WeatherBenchDataset(data_dir, split="train")
     val_dataset = WeatherBenchDataset(data_dir, split="val")
     test_dataset = WeatherBenchDataset(data_dir, split="test")
