@@ -340,7 +340,7 @@ if __name__ == "__main__":
         device="cpu",
     )
 
-    print(f"Trainer created successfully!")
+    print("Trainer created successfully!")
     print(f"Device: {trainer.device}")
     print(f"Epochs: {trainer.epochs}")
     print(f"LR: {trainer.lr}")
@@ -349,6 +349,6 @@ if __name__ == "__main__":
     print("\nRunning quick training test (2 epochs)...")
     history = trainer.train()
 
-    print(f"\n Trainer working!")
+    print("\n Trainer working!")
     print(f"   Train losses: {history['train_loss']}")
     print(f"   Val losses: {history['val_loss']}")

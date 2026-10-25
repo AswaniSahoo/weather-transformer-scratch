@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -85,7 +84,7 @@ def download_weatherbench2(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    print(f"Opening WeatherBench2 ERA5 dataset from GCS...")
+    print("Opening WeatherBench2 ERA5 dataset from GCS...")
     print(f"Source: {GCS_PATH}")
     
     # Open the zarr dataset from GCS
@@ -120,7 +119,7 @@ def download_weatherbench2(
             temp = ds_subset["temperature"].sel(level=850, drop=True)
             temp = temp.rename("t850")
             selected_vars.append(temp)
-            print(f"Selected: temperature at 850 hPa -> t850")
+            print("Selected: temperature at 850 hPa -> t850")
     
     # Try to get geopotential at 500 hPa
     if "geopotential" in available_vars:
@@ -128,7 +127,7 @@ def download_weatherbench2(
             geo = ds_subset["geopotential"].sel(level=500, drop=True)
             geo = geo.rename("z500")
             selected_vars.append(geo)
-            print(f"Selected: geopotential at 500 hPa -> z500")
+            print("Selected: geopotential at 500 hPa -> z500")
     
     # Try to get 10m winds
     for var_name, short_name in [
@@ -147,7 +146,7 @@ def download_weatherbench2(
         if "2m_temperature" in available_vars:
             temp = ds_subset["2m_temperature"].rename("t2m")
             selected_vars.append(temp)
-            print(f"Selected: 2m_temperature -> t2m")
+            print("Selected: 2m_temperature -> t2m")
     
     if not selected_vars:
         raise ValueError(
@@ -163,7 +162,7 @@ def download_weatherbench2(
     
     # Compute the data (load into memory) for the subset
     # This is important for smaller time ranges to avoid repeated GCS calls
-    print(f"\nDownloading data to memory...")
+    print("\nDownloading data to memory...")
     ds_final = ds_final.compute()
     
     # Save to NetCDF

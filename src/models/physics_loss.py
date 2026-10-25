@@ -174,4 +174,4 @@ if __name__ == "__main__":
     print(f"Gradient exists:   {prediction.grad is not None}")
     print(f"Gradient shape:    {prediction.grad.shape}")
 
-    print(f"\n✅ Physics-informed loss working!")
+    print("\n✅ Physics-informed loss working!")
