@@ -72,14 +72,17 @@ class Trainer:
         self.epochs = train_cfg.get("epochs", 50)
         self.lr = train_cfg.get("learning_rate", 1e-4)
         self.weight_decay = train_cfg.get("weight_decay", 0.01)
+        self.gradient_clip = train_cfg.get("gradient_clip", 1.0)
+        self.min_lr = train_cfg.get("min_lr", 1e-6)
+        self.save_every = train_cfg.get("save_every", 10)
 
-        # Loss function (physics-informed)
-        loss_cfg = train_cfg.get("loss", {})
+        # Loss function (physics-informed), from the top-level `loss` section
+        loss_cfg = config.get("loss", {})
         self.loss_fn = PhysicsInformedLoss(
             mse_weight=loss_cfg.get("mse_weight", 1.0),
             smoothness_weight=loss_cfg.get("smoothness_weight", 0.1),
             conservation_weight=loss_cfg.get("conservation_weight", 0.05),
-        )
+        ).to(self.device)
 
         # Optimizer
         self.optimizer = AdamW(
@@ -92,12 +95,11 @@ class Trainer:
         self.scheduler = CosineAnnealingLR(
             self.optimizer,
             T_max=self.epochs,
-            eta_min=1e-6,
+            eta_min=self.min_lr,
         )
 
         # Checkpointing
-        paths_cfg = config.get("paths", {})
-        self.checkpoint_dir = Path(paths_cfg.get("checkpoint_dir", "checkpoints"))
+        self.checkpoint_dir = Path(train_cfg.get("checkpoint_dir", "checkpoints"))
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         self.log_file = self.checkpoint_dir / "training_log.json"
@@ -160,7 +162,7 @@ class Trainer:
                 self._save_checkpoint(epoch, is_best=True)
 
             # Periodic checkpoint
-            if epoch % 10 == 0:
+            if self.save_every and epoch % self.save_every == 0:
                 self._save_checkpoint(epoch, is_best=False)
 
             # Epoch summary
@@ -215,7 +217,7 @@ class Trainer:
             losses["total"].backward()
 
             # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.gradient_clip)
 
             # Update
             self.optimizer.step()
@@ -327,8 +329,7 @@ if __name__ == "__main__":
 
     # Config
     config = {
-        "training": {"epochs": 2, "learning_rate": 1e-3},
-        "paths": {"checkpoint_dir": "checkpoints_test"},
+        "training": {"epochs": 2, "learning_rate": 1e-3, "checkpoint_dir": "checkpoints_test"},
     }
 
     # Create trainer

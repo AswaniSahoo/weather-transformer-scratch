@@ -4,21 +4,19 @@
 
 # --- Data ---
 data:
-  # WeatherBench2 GCS path
-  source: "gs://weatherbench2/datasets/era5/1959-2023-6h-64x32_equiangular_conservative.zarr"
+  # WeatherBench2 ERA5: 6-hourly, 5.625° equiangular grid (64 lon × 32 lat)
+  source: "gs://weatherbench2/datasets/era5/1959-2022-6h-64x32_equiangular_conservative.zarr"
+  # Model channels, in order: short name → WeatherBench2 variable (+ pressure level in hPa)
   variables:
-    - "temperature"          # t850
-    - "geopotential"         # z500
-    - "u_component_of_wind"  # u10
-    - "v_component_of_wind"  # v10
-  pressure_levels:
-    temperature: 850
-    geopotential: 500
+    t850: {name: "temperature", level: 850}
+    z500: {name: "geopotential", level: 500}
+    u10: {name: "10m_u_component_of_wind"}
+    v10: {name: "10m_v_component_of_wind"}
   # Time range
   train_years: [2015, 2018]   # inclusive
   val_years: [2019, 2019]
   test_years: [2020, 2020]
-  # Forecast step
+  # Forecast step (a multiple of the 6-hour data interval)
   lead_time_hours: 6
   # Grid
   lat_size: 32
@@ -41,13 +39,12 @@ training:
   epochs: 50
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5
-  gradient_clip: 1.0
-  # Scheduler
-  warmup_epochs: 5
+  gradient_clip: 1.0   # max gradient norm
+  # Scheduler: cosine annealing from learning_rate down to min_lr
   min_lr: 1.0e-6
-  # Checkpointing
+  # Checkpointing: best model + every `save_every` epochs
   save_every: 10
-  checkpoint_dir: "results/checkpoints"
+  checkpoint_dir: "checkpoints"
 
 # --- Physics Loss ---
 loss:
@@ -55,17 +52,7 @@ loss:
   smoothness_weight: 0.1
   conservation_weight: 0.05
 
-# --- Evaluation ---
-evaluation:
-  metrics:
-    - "rmse"
-    - "mae"
-    - "acc"    # anomaly correlation coefficient
-
 # --- Paths ---
 paths:
   data_dir: "data/raw"
   processed_dir: "data/processed"
-  results_dir: "results"
-  figures_dir: "results/figures"
-  log_file: "results/training_log.csv"

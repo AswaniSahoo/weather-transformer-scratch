@@ -38,8 +38,50 @@ def load_raw_data(
     print(f"Loading raw data from {data_path}...")
     ds = xr.open_dataset(data_path)
     print(f"Loaded dataset with variables: {list(ds.data_vars)}")
-    print(f"Shape: {dict(ds.dims)}")
+    print(f"Shape: {dict(ds.sizes)}")
     return ds
+
+
+def check_grid(ds: xr.Dataset) -> None:
+    """
+    Fail early unless the data is on a WeatherBench2 equiangular grid.
+
+    The cos(latitude) metric weights and the map plots assume latitude cell
+    centres ascending from the South Pole (no pole rows) and longitude cell
+    centres starting at 0°E, e.g. -87.1875..87.1875 and 0..354.375 on 64x32.
+
+    Raises:
+        ValueError: If the coordinates differ from that convention.
+    """
+    lat = ds.latitude.values
+    lon = ds.longitude.values
+    expected_lat = -90.0 + (np.arange(lat.size) + 0.5) * 180.0 / lat.size
+    expected_lon = np.arange(lon.size) * 360.0 / lon.size
+
+    if not (np.allclose(lat, expected_lat) and np.allclose(lon, expected_lon)):
+        raise ValueError(
+            "Expected an equiangular grid with latitude ascending from "
+            f"{expected_lat[0]} and longitude starting at 0°E; got latitude "
+            f"{lat[0]}..{lat[-1]}, longitude {lon[0]}..{lon[-1]}"
+        )
+
+
+def lead_time_to_steps(ds: xr.Dataset, lead_time_hours: int) -> int:
+    """
+    Convert a forecast lead time in hours to a number of dataset time steps.
+
+    Raises:
+        ValueError: If the lead time is not a positive multiple of the
+            data's time step.
+    """
+    step_hours = (ds.time.values[1] - ds.time.values[0]) / np.timedelta64(1, "h")
+    steps = lead_time_hours / step_hours
+    if steps < 1 or steps != int(steps):
+        raise ValueError(
+            f"lead_time_hours={lead_time_hours} must be a positive multiple "
+            f"of the {step_hours:g}-hour data interval"
+        )
+    return int(steps)
 
 
 def compute_normalization_stats(
@@ -169,20 +211,17 @@ def create_input_target_pairs(
     """
     variables = list(ds.data_vars)
     n_times = len(ds.time)
-    
+
     # Number of valid samples (we lose lead_time_steps at the end)
     n_samples = n_times - lead_time_steps
-    
-    # Stack variables into single array: (time, channels, ...)
-    # xarray data has shape (time, lon, lat) so we need to transpose to (time, channels, lat, lon)
-    # Model expects (N, C, H, W) = (N, C, lat, lon) = (N, C, 32, 64)
+
+    # Stack variables into single array: (time, channels, lat, lon)
+    # WeatherBench2 stores (time, longitude, latitude), so order the axes by
+    # name. Model expects (N, C, H, W) = (N, C, lat, lon) = (N, C, 32, 64)
     data_stack = np.stack(
-        [ds[var].values for var in variables],
+        [ds[var].transpose("time", "latitude", "longitude").values for var in variables],
         axis=1  # Stack along channel dimension
     )
-    # Transpose from (time, channels, lon, lat) to (time, channels, lat, lon)
-    # i.e., swap the last two dimensions
-    data_stack = np.transpose(data_stack, (0, 1, 3, 2))
     
     # Create input-target pairs
     inputs = data_stack[:n_samples]  # X(t) for t = 0, 1, ..., n_samples-1
@@ -228,7 +267,9 @@ def preprocess_and_save(
     print("Step 1: Loading raw data")
     print("="*60)
     ds = load_raw_data(raw_data_path)
-    
+    check_grid(ds)
+    lead_time_steps = lead_time_to_steps(ds, data_config.get("lead_time_hours", 6))
+
     # Compute normalization statistics on training data only
     print("\n" + "="*60)
     print("Step 2: Computing normalization statistics (from training data)")
@@ -265,7 +306,7 @@ def preprocess_and_save(
     
     for split_name, split_ds in [("train", train_ds), ("val", val_ds), ("test", test_ds)]:
         print(f"\n--- {split_name} split ---")
-        inputs, targets = create_input_target_pairs(split_ds, lead_time_steps=1)
+        inputs, targets = create_input_target_pairs(split_ds, lead_time_steps=lead_time_steps)
         
         # Save as .npy files
         inputs_path = output_path / f"{split_name}_inputs.npy"
