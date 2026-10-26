@@ -1,6 +1,6 @@
 """
-Tests for the evaluation script: the ACC climatology, and an end-to-end run
-on tiny synthetic data.
+Tests for the evaluation script: the ACC climatology, regional scores, and an
+end-to-end run on tiny synthetic data.
 
 Run with: pytest tests/test_evaluate.py -v
 """
@@ -18,6 +18,7 @@ import torch  # noqa: E402
 import yaml  # noqa: E402
 
 from src.evaluation import evaluate  # noqa: E402
+from src.evaluation.regions import REGIONS, region_cells  # noqa: E402
 from src.models.weather_transformer import WeatherTransformer  # noqa: E402
 from src.visualization import plot_predictions  # noqa: E402
 
@@ -43,8 +44,9 @@ def workspace(tmp_path):
     data_dir = tmp_path / "processed"
     data_dir.mkdir()
     rng = np.random.default_rng(0)
-    splits = [("train", 12, "2017-01-01T06"), ("val", 4, "2018-01-01T06"),
-              ("test", 6, "2019-01-01T06")]
+    # The test samples straddle 30 September / 1 October: 2 in the monsoon, 4 after it
+    splits = [("train", 12, "2017-09-29T06"), ("val", 4, "2018-09-29T06"),
+              ("test", 6, "2019-09-30T12")]
     for split, n, start in splits:
         x = rng.normal(size=(n, 4, H, W)).astype(np.float32)
         np.save(data_dir / f"{split}_inputs.npy", x)
@@ -103,6 +105,33 @@ def test_main_writes_metrics_and_figure(workspace, monkeypatch):
     assert results["settings"]["test_samples"] == 6
     assert "day of year" in results["settings"]["acc_climatology"]
     assert figure.exists()
+
+    india = results["regions"]["india"]
+    assert india["monsoon_jjas"]["samples"] == 2
+    assert india["rest_of_year"]["samples"] == 4
+    assert india["rest_of_year"]["persistence"]["rmse_t850_physical"] == pytest.approx(
+        0.1 * STATS["t850"]["std"], rel=1e-4
+    )
+
+
+def test_regional_scores_only_see_their_region_and_season():
+    times = six_hourly("2019-09-30T00", 8)  # 4 in September, 4 in October
+    targets = torch.zeros(8, 1, 32, 64)
+    predictions = torch.zeros(8, 1, 32, 64)
+    rows, cols = region_cells(REGIONS["india"], 32, 64)
+    outside = torch.ones(32, 64, dtype=torch.bool)
+    outside[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1] = False
+    predictions[:, :, outside] = 5.0  # wrong everywhere outside India
+    predictions[4:, :, ~outside] = 1.0  # wrong over India, but only in October
+
+    india = evaluate.regional_scores(
+        predictions, predictions, targets, times, torch.zeros_like(targets), ["t850"]
+    )["india"]
+
+    assert india["cells"] == 36
+    assert india["monsoon_jjas"]["samples"] == 4
+    assert india["monsoon_jjas"]["model"]["rmse"] == 0.0
+    assert india["rest_of_year"]["model"]["rmse"] == pytest.approx(1.0)
 
 
 def test_climatology_uses_the_same_hour_of_day():
