@@ -1,5 +1,5 @@
 """
-Unit tests for Trainer configuration handling.
+Unit tests for the Trainer: config handling, seeding and resuming.
 
 Run with: pytest tests/test_trainer.py -v
 """
@@ -72,6 +72,7 @@ class TestTrainerConfig:
         assert (ckpt_dir / "best_model.pt").exists()
         assert (ckpt_dir / "checkpoint_epoch_1.pt").exists()
         assert (ckpt_dir / "checkpoint_epoch_2.pt").exists()
+        assert (ckpt_dir / "last.pt").exists()
         log = json.loads((ckpt_dir / "training_log.json").read_text())
         assert len(log["history"]["train_loss"]) == len(history["train_loss"]) == 2
 
@@ -87,3 +88,27 @@ class TestTrainerConfig:
 
         # Same initial weights, shuffling order and dropout masks
         assert train_once() == train_once()
+
+    def test_resumed_run_matches_uninterrupted_run(self, default_config, tmp_path):
+        default_config["training"]["epochs"] = 3
+
+        def new_trainer(checkpoint_dir):
+            set_seed(123)
+            x = torch.randn(16, 4, 8, 16)
+            loader = DataLoader(TensorDataset(x, x.roll(1, dims=-1)), batch_size=4, shuffle=True)
+            training = {**default_config["training"], "checkpoint_dir": str(checkpoint_dir)}
+            return Trainer(tiny_model(), loader, loader, {**default_config, "training": training}, "cpu")
+
+        uninterrupted = new_trainer(tmp_path / "a")
+        uninterrupted.train()
+
+        stopped = new_trainer(tmp_path / "b")
+        stopped.epochs = 1  # stops after epoch 1; the LR schedule still spans 3 epochs
+        stopped.train()
+        resumed = new_trainer(tmp_path / "b")
+        resumed.resume(tmp_path / "b" / "last.pt")
+        resumed.train()
+
+        assert resumed.history == uninterrupted.history
+        for a, b in zip(resumed.model.parameters(), uninterrupted.model.parameters()):
+            assert torch.equal(a, b)
