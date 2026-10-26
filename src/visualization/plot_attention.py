@@ -56,15 +56,17 @@ def plot_attention_maps(
 
     N = attn_head.shape[0]
 
-    # Default query positions: corners and center
+    # Default query positions: corners and center.
+    # Patch row 0 is the southernmost row (latitude ascends), and maps are
+    # drawn with origin="lower" so north is up.
     if query_positions is None:
         center = N // 2
         query_positions = [
-            0,                          # Top-left
-            n_patches_w - 1,            # Top-right
+            0,                          # South-west corner
+            n_patches_w - 1,            # South-east corner
             center,                     # Center
-            N - n_patches_w,            # Bottom-left
-            N - 1,                      # Bottom-right
+            N - n_patches_w,            # North-west corner
+            N - 1,                      # North-east corner
         ]
         query_positions = [p for p in query_positions if 0 <= p < N]
 
@@ -89,7 +91,7 @@ def plot_attention_maps(
 
         # Top row: attention maps
         ax_top = axes[0, i]
-        im = ax_top.imshow(attn_from_query, cmap="hot", vmin=0)
+        im = ax_top.imshow(attn_from_query, cmap="hot", vmin=0, origin="lower")
         ax_top.scatter([query_w], [query_h], c="cyan", s=100, marker="*", 
                       edgecolors="white", linewidths=2, zorder=10)
         ax_top.set_title(f"Query: ({query_h}, {query_w})")
@@ -109,7 +111,7 @@ def plot_attention_maps(
             top_mask[idx] = top_k - rank
         top_mask = top_mask.reshape(n_patches_h, n_patches_w)
 
-        ax_bot.imshow(top_mask, cmap="YlOrRd")
+        ax_bot.imshow(top_mask, cmap="YlOrRd", origin="lower")
         ax_bot.scatter([query_w], [query_h], c="cyan", s=100, marker="*",
                       edgecolors="black", linewidths=2, zorder=10)
         ax_bot.set_title(f"Top-{top_k} Attended")
@@ -169,7 +171,7 @@ def plot_attention_heads_comparison(
         ax = axes[row, col]
 
         attn_map = attn[head_idx, query_pos].reshape(n_patches_h, n_patches_w)
-        ax.imshow(attn_map, cmap="hot", vmin=0)
+        ax.imshow(attn_map, cmap="hot", vmin=0, origin="lower")
         ax.scatter([query_w], [query_h], c="cyan", s=80, marker="*",
                   edgecolors="white", linewidths=1.5)
         ax.set_title(f"Head {head_idx}")
