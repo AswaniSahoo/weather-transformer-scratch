@@ -10,6 +10,7 @@ Handles the full training loop with:
 """
 
 import json
+import os
 import random
 import time
 from pathlib import Path
@@ -318,7 +319,12 @@ class Trainer:
             "rng_state": _rng_state(),
             "config": self.config,
         }
-        torch.save(checkpoint, self.checkpoint_dir / filename)
+        # Write a temporary file, then swap it in: a run killed mid-save keeps
+        # the previous checkpoint instead of a half-written one
+        path = self.checkpoint_dir / filename
+        tmp_path = path.with_name(path.name + ".tmp")
+        torch.save(checkpoint, tmp_path)
+        os.replace(tmp_path, path)
 
     def _save_log(self):
         """Save training log to JSON."""
