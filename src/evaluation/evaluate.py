@@ -30,6 +30,7 @@ from src.evaluation.metrics import (
     latitude_weights,
     persistence_baseline,
 )
+from src.evaluation.regions import REGIONS, SEASONS, months, region_cells
 
 # Physical units of each channel (for reporting errors in real units)
 UNITS = {"t850": "K", "z500": "m²/s²", "u10": "m/s", "v10": "m/s"}
@@ -181,34 +182,30 @@ def predict(
     return torch.cat(all_inputs), torch.cat(all_preds), torch.cat(all_targets)
 
 
-def evaluate_model(
-    model: WeatherTransformer,
-    dataset: WeatherBenchDataset,
-    device: str,
-    batch_size: int = 64,
+def score(
+    inputs: torch.Tensor,
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
     variable_names: Optional[List[str]] = None,
     lat_weights: Optional[torch.Tensor] = None,
     climatology: Optional[torch.Tensor] = None,
+    stats: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Dict[str, Dict[str, float]]:
     """
-    Evaluate model on a dataset and compare with persistence baseline.
+    Metrics for the model and for persistence on the same samples.
 
     Args:
-        model: Trained WeatherTransformer.
-        dataset: Test dataset.
-        device: Device string.
-        batch_size: Batch size for evaluation.
+        inputs, predictions, targets: (N, C, H, W) tensors from predict().
         variable_names: List of variable names.
         lat_weights: Optional (H,) area weights (see latitude_weights).
         climatology: Optional (C, H, W) or per-sample (N, C, H, W)
             climatology for ACC.
+        stats: Optional normalization stats; adds RMSE in physical units.
 
     Returns:
         Dict with 'model' and 'persistence' metric dicts.
     """
-    inputs, predictions, targets = predict(model, dataset, device, batch_size)
-
-    return {
+    scores = {
         "model": compute_all_metrics(
             predictions, targets, variable_names, lat_weights, climatology
         ),
@@ -216,6 +213,62 @@ def evaluate_model(
             inputs, targets, variable_names, lat_weights, climatology
         ),
     }
+    if stats:
+        scores = {name: add_physical_units(m, stats) for name, m in scores.items()}
+    return scores
+
+
+def _subset(x: torch.Tensor, keep: torch.Tensor, rows: torch.Tensor, cols: torch.Tensor):
+    """The samples in `keep`, cut to the region's rows and columns."""
+    return x[keep][:, :, rows][:, :, :, cols]
+
+
+def regional_scores(
+    inputs: torch.Tensor,
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    times: np.ndarray,
+    climatology: torch.Tensor,
+    variable_names: Optional[List[str]] = None,
+    stats: Optional[Dict[str, Dict[str, float]]] = None,
+) -> Dict[str, dict]:
+    """
+    score() for every region and season in regions.py, area-weighted.
+
+    Args:
+        inputs, predictions, targets: (N, C, H, W) tensors from predict().
+        times: (N,) valid times of the targets.
+        climatology: Per-sample (N, C, H, W) climatology for ACC.
+        variable_names: List of variable names.
+        stats: Optional normalization stats; adds RMSE in physical units.
+
+    Returns:
+        {region: {"box", "cells", season: {"samples", "model", "persistence"}}}.
+        A season with no samples has only "samples": 0.
+    """
+    n_lat, n_lon = targets.shape[-2:]
+    weights = latitude_weights(n_lat)
+    month = months(times)
+    results = {}
+
+    for region, box in REGIONS.items():
+        rows, cols = (torch.as_tensor(i) for i in region_cells(box, n_lat, n_lon))
+        results[region] = {"box": list(box), "cells": len(rows) * len(cols)}
+
+        for season, season_months in SEASONS.items():
+            keep = torch.as_tensor(np.isin(month, season_months))
+            entry = {"samples": int(keep.sum())}
+            if entry["samples"]:
+                entry.update(score(
+                    *(_subset(x, keep, rows, cols) for x in (inputs, predictions, targets)),
+                    variable_names,
+                    weights[rows],
+                    _subset(climatology, keep, rows, cols),
+                    stats,
+                ))
+            results[region][season] = entry
+
+    return results
 
 
 def save_forecast_figure(
@@ -253,10 +306,10 @@ def save_forecast_figure(
     )
 
 
-def print_results(results: Dict[str, Dict[str, float]]):
-    """Pretty-print evaluation results."""
+def print_results(results: Dict[str, Dict[str, float]], title: str = "EVALUATION RESULTS"):
+    """Pretty-print model vs persistence metrics."""
     print("\n" + "=" * 60)
-    print("EVALUATION RESULTS")
+    print(title)
     print("=" * 60)
 
     print(f"\n{'Metric':<25} {'Model':>12} {'Persistence':>12} {'Better?':>10}")
@@ -333,25 +386,23 @@ def main():
     print(f"Test samples: {len(test_dataset)}")
 
     # Climatology for ACC: training years, same day of year and hour as each test target
+    test_times = load_target_times(args.data_dir, "test")
     climatology = seasonal_climatology(
         np.load(Path(args.data_dir) / "train_targets.npy", mmap_mode="r"),
         load_target_times(args.data_dir, "train"),
-        load_target_times(args.data_dir, "test"),
+        test_times,
     )
-
-    # Evaluate (area-weighted)
-    results = evaluate_model(
-        model,
-        test_dataset,
-        device,
-        variable_names=variable_names,
-        lat_weights=latitude_weights(test_dataset.height),
-        climatology=climatology,
-    )
-
     stats = load_normalization_stats(args.data_dir)
-    if stats:
-        results = {name: add_physical_units(m, stats) for name, m in results.items()}
+
+    # Evaluate (area-weighted): the whole globe, then each region and season
+    inputs, predictions, targets = predict(model, test_dataset, device)
+    results = score(
+        inputs, predictions, targets, variable_names,
+        latitude_weights(test_dataset.height), climatology, stats,
+    )
+    results["regions"] = regional_scores(
+        inputs, predictions, targets, test_times, climatology, variable_names, stats
+    )
 
     results["settings"] = {
         "test_samples": len(test_dataset),
@@ -362,10 +413,17 @@ def main():
         ),
         "units": "normalized (z-score) unless the key ends in _physical",
         "physical_units": {v: UNITS.get(v, "") for v in variable_names},
+        "regions": "grid cells whose centres lie in box = [lat_min, lat_max, lon_min, lon_max]",
+        "seasons": {name: list(season_months) for name, season_months in SEASONS.items()},
     }
 
     # Print results
     print_results(results)
+    for region, by_season in results["regions"].items():
+        for season in SEASONS:
+            entry = by_season[season]
+            if entry["samples"]:
+                print_results(entry, f"{region.upper()}, {season} ({entry['samples']} samples)")
 
     # Save results. UTF-8 explicitly: the units contain "²", and on Windows the
     # default encoding (cp1252) would write a file other tools cannot read.
