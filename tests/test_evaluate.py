@@ -1,5 +1,6 @@
 """
-End-to-end test of the evaluation script on tiny synthetic data.
+Tests for the evaluation script: the ACC climatology, and an end-to-end run
+on tiny synthetic data.
 
 Run with: pytest tests/test_evaluate.py -v
 """
@@ -28,6 +29,12 @@ STATS = {
     "u10": {"mean": 0.0, "std": 5.0},
     "v10": {"mean": 0.2, "std": 4.0},
 }
+TWO_YEARS = 4 * 365 * 2  # 6-hourly samples in 2017-2018 (no leap day)
+
+
+def six_hourly(start: str, n: int) -> np.ndarray:
+    """n valid times, 6 hours apart, starting at `start`."""
+    return np.datetime64(start, "ns") + np.arange(n) * np.timedelta64(6, "h")
 
 
 @pytest.fixture
@@ -36,10 +43,13 @@ def workspace(tmp_path):
     data_dir = tmp_path / "processed"
     data_dir.mkdir()
     rng = np.random.default_rng(0)
-    for split, n in [("train", 12), ("val", 4), ("test", 6)]:
+    splits = [("train", 12, "2017-01-01T06"), ("val", 4, "2018-01-01T06"),
+              ("test", 6, "2019-01-01T06")]
+    for split, n, start in splits:
         x = rng.normal(size=(n, 4, H, W)).astype(np.float32)
         np.save(data_dir / f"{split}_inputs.npy", x)
         np.save(data_dir / f"{split}_targets.npy", x + 0.1)
+        np.save(data_dir / f"{split}_times.npy", six_hourly(start, n))
     (data_dir / "normalization_stats.json").write_text(json.dumps(STATS))
 
     config = {
@@ -91,14 +101,49 @@ def test_main_writes_metrics_and_figure(workspace, monkeypatch):
     # Targets are inputs + 0.1 everywhere, so persistence RMSE is exactly 0.1
     assert results["persistence"]["rmse"] == pytest.approx(0.1, abs=1e-5)
     assert results["settings"]["test_samples"] == 6
+    assert "day of year" in results["settings"]["acc_climatology"]
     assert figure.exists()
 
 
-def test_training_climatology_is_time_mean(workspace):
-    _, data_dir, _, _ = workspace
-    expected = np.load(data_dir / "train_targets.npy").mean(axis=0)
+def test_climatology_uses_the_same_hour_of_day():
+    train_times = six_hourly("2017-01-01T00", TWO_YEARS)
+    hour = (np.arange(TWO_YEARS) % 4) * 6.0
+    train_targets = hour.reshape(-1, 1, 1, 1)
 
-    climatology = evaluate.training_climatology(str(data_dir))
+    climatology = evaluate.seasonal_climatology(
+        train_targets, train_times, six_hourly("2019-06-01T06", 2)
+    )
 
-    assert climatology.shape == (4, H, W)
-    np.testing.assert_allclose(climatology.numpy(), expected, rtol=1e-5, atol=1e-6)
+    assert climatology.shape == (2, 1, 1, 1)
+    assert climatology.flatten().tolist() == [6.0, 12.0]
+
+
+def test_climatology_averages_the_days_around_the_same_date():
+    train_times = six_hourly("2017-01-01T00", TWO_YEARS)
+    day_of_year = (np.arange(TWO_YEARS) // 4) % 365 + 1.0
+    train_targets = day_of_year.reshape(-1, 1, 1, 1)
+
+    climatology = evaluate.seasonal_climatology(
+        train_targets, train_times, six_hourly("2019-07-02T00", 1), window_days=30
+    )
+
+    # 2 July is day 183; days 153 to 213 average to 183
+    assert climatology.item() == pytest.approx(183.0)
+
+
+def test_climatology_window_wraps_around_new_year():
+    train_times = six_hourly("2017-01-01T00", TWO_YEARS)
+    in_december = train_times.astype("datetime64[M]").astype(int) % 12 == 11
+    train_targets = in_december.astype(np.float64).reshape(-1, 1, 1, 1)
+
+    climatology = evaluate.seasonal_climatology(
+        train_targets, train_times, six_hourly("2019-01-05T00", 1), window_days=30
+    )
+
+    # The window around 5 January reaches back to 6-31 December: 26 of its 61 days
+    assert climatology.item() == pytest.approx(26 / 61)
+
+
+def test_missing_times_file_says_how_to_fix(tmp_path):
+    with pytest.raises(FileNotFoundError, match="preprocessing"):
+        evaluate.load_target_times(str(tmp_path), "train")

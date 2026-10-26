@@ -15,6 +15,7 @@ from src.data.preprocessing import (  # noqa: E402
     check_grid,
     create_input_target_pairs,
     lead_time_to_steps,
+    target_times,
 )
 
 N_TIME, N_LON, N_LAT = 5, 8, 4
@@ -111,6 +112,16 @@ class TestCreateInputTargetPairs:
 
         assert inputs.shape[0] == N_TIME - 2
         np.testing.assert_array_equal(targets[0], inputs[2])
+
+    def test_target_times_match_targets(self):
+        ds = select_variables(wb2_like_dataset(), VARIABLES)
+        _, targets = create_input_target_pairs(ds, lead_time_steps=2)
+        times = target_times(ds, lead_time_steps=2)
+
+        assert len(times) == len(targets)
+        # Target 0 is the t850 field at times[0]
+        at_time = ds["t850"].sel(time=times[0]).transpose("latitude", "longitude")
+        np.testing.assert_array_equal(targets[0, 0], at_time.values)
 
 
 class TestGridAndLeadTime:
