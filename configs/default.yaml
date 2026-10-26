@@ -35,6 +35,7 @@ model:
 
 # --- Training ---
 training:
+  seed: 42             # fixes initial weights, data order and dropout
   batch_size: 32
   epochs: 50
   learning_rate: 1.0e-4

@@ -13,7 +13,7 @@ import yaml
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.models.weather_transformer import WeatherTransformer
-from src.training.trainer import Trainer
+from src.training.trainer import Trainer, set_seed
 
 CONFIG_PATH = Path(__file__).parent.parent / "configs" / "default.yaml"
 
@@ -74,3 +74,16 @@ class TestTrainerConfig:
         assert (ckpt_dir / "checkpoint_epoch_2.pt").exists()
         log = json.loads((ckpt_dir / "training_log.json").read_text())
         assert len(log["history"]["train_loss"]) == len(history["train_loss"]) == 2
+
+    def test_same_seed_repeats_the_run_exactly(self, default_config):
+        default_config["training"]["epochs"] = 2
+
+        def train_once():
+            set_seed(123)
+            x = torch.randn(16, 4, 8, 16)
+            loader = DataLoader(TensorDataset(x, x.roll(1, dims=-1)), batch_size=4, shuffle=True)
+            trainer = Trainer(tiny_model(), loader, loader, default_config, "cpu")
+            return trainer.train()["train_loss"]
+
+        # Same initial weights, shuffling order and dropout masks
+        assert train_once() == train_once()

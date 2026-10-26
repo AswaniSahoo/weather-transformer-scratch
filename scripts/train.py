@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models.weather_transformer import WeatherTransformer
 from src.data.dataset import create_dataloaders
-from src.training.trainer import Trainer
+from src.training.trainer import Trainer, set_seed
 
 
 def load_config(config_path: str) -> dict:
@@ -58,6 +58,12 @@ def main():
 
     print("🌦️  Weather Transformer — Training")
     print("=" * 50)
+
+    # Seed before building the data loaders and the model
+    seed = config["training"].get("seed")
+    if seed is not None:
+        set_seed(seed)
+        print(f"Seed: {seed}")
 
     # Data
     data_dir = config["paths"].get("processed_dir", "data/processed")

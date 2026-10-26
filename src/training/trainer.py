@@ -10,10 +10,12 @@ Handles the full training loop with:
 """
 
 import json
+import random
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
@@ -22,6 +24,19 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.models.physics_loss import PhysicsInformedLoss
+
+
+def set_seed(seed: int) -> None:
+    """
+    Seed Python, NumPy and PyTorch so a run can be repeated.
+
+    Call it before building the data loaders and the model: it fixes the
+    initial weights, the shuffling order and dropout. Runs are identical on
+    the same hardware and library versions; GPUs can still differ slightly.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 class Trainer:
