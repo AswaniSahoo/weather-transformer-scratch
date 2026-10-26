@@ -5,6 +5,7 @@ Usage:
     python scripts/train.py
     python scripts/train.py --config configs/default.yaml
     python scripts/train.py --config configs/default.yaml --epochs 10
+    python scripts/train.py --resume    # continue a run that stopped
 """
 
 import argparse
@@ -44,6 +45,10 @@ def main():
     parser.add_argument(
         "--data-dir", type=str, default=None,
         help="Override processed data directory",
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Continue from last.pt in the checkpoint directory, if it exists",
     )
     args = parser.parse_args()
 
@@ -103,6 +108,10 @@ def main():
         config=config,
         device=args.device,
     )
+
+    last_checkpoint = trainer.checkpoint_dir / "last.pt"
+    if args.resume and last_checkpoint.exists():
+        trainer.resume(last_checkpoint)
 
     # Train
     trainer.train()
