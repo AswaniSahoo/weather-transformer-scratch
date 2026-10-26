@@ -136,9 +136,10 @@ def acc_per_variable(
     Args:
         prediction: (B, C, H, W)
         target: (B, C, H, W)
-        climatology: (C, H, W) or None. Should come from the training period;
-            if None, the mean of `target` is used as a rough proxy (which uses
-            information from the evaluation period itself).
+        climatology: (C, H, W), per-sample (B, C, H, W), or None. Should
+            come from the training period; if None, the mean of `target` is
+            used as a rough proxy (which uses information from the evaluation
+            period itself).
         lat_weights: Optional (H,) area weights.
 
     Returns:
@@ -181,7 +182,7 @@ def anomaly_correlation_coefficient(
     Args:
         prediction: (B, C, H, W)
         target: (B, C, H, W)
-        climatology: (C, H, W) or None (see acc_per_variable).
+        climatology: (C, H, W), (B, C, H, W) or None (see acc_per_variable).
         lat_weights: Optional (H,) area weights.
 
     Returns:
@@ -208,7 +209,7 @@ def persistence_baseline(
         targets: (B, C, H, W) actual next-step weather states.
         variable_names: Optional list of variable names for per-var metrics.
         lat_weights: Optional (H,) area weights.
-        climatology: Optional (C, H, W) climatology for ACC.
+        climatology: Optional (C, H, W) or (B, C, H, W) climatology for ACC.
 
     Returns:
         Dict with the same keys as compute_all_metrics().
@@ -231,7 +232,7 @@ def compute_all_metrics(
         target: (B, C, H, W)
         variable_names: Optional list of variable names for per-var metrics.
         lat_weights: Optional (H,) area weights.
-        climatology: Optional (C, H, W) climatology for ACC.
+        climatology: Optional (C, H, W) or (B, C, H, W) climatology for ACC.
 
     Returns:
         Dict with overall rmse/mae/acc plus rmse_<var> and acc_<var>.

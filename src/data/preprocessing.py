@@ -5,6 +5,7 @@ Handles:
 - Loading raw NetCDF data
 - Computing normalization statistics (per-variable mean/std)
 - Creating input-target pairs: X(t) -> Y(t+1) for 6-hour forecasting
+- Saving the valid time of each target (evaluation needs it for the climatology)
 - Train/Val/Test splits by year
 """
 
@@ -230,8 +231,13 @@ def create_input_target_pairs(
     print(f"Created {n_samples} input-target pairs")
     print(f"Input shape:  {inputs.shape}")
     print(f"Target shape: {targets.shape}")
-    
+
     return inputs, targets
+
+
+def target_times(ds: xr.Dataset, lead_time_steps: int = 1) -> np.ndarray:
+    """Valid time of each target from create_input_target_pairs, in the same order."""
+    return ds.time.values[lead_time_steps:]
 
 
 def preprocess_and_save(
@@ -311,15 +317,19 @@ def preprocess_and_save(
         # Save as .npy files
         inputs_path = output_path / f"{split_name}_inputs.npy"
         targets_path = output_path / f"{split_name}_targets.npy"
-        
+        times_path = output_path / f"{split_name}_times.npy"
+
         np.save(inputs_path, inputs.astype(np.float32))
         np.save(targets_path, targets.astype(np.float32))
-        
+        np.save(times_path, target_times(split_ds, lead_time_steps))
+
         print(f"Saved {split_name} inputs to {inputs_path}")
         print(f"Saved {split_name} targets to {targets_path}")
-        
+        print(f"Saved {split_name} target times to {times_path}")
+
         saved_paths[f"{split_name}_inputs"] = str(inputs_path)
         saved_paths[f"{split_name}_targets"] = str(targets_path)
+        saved_paths[f"{split_name}_times"] = str(times_path)
     
     print("\n" + "="*60)
     print("Preprocessing complete!")

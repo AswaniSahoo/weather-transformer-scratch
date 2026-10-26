@@ -6,7 +6,7 @@ against the persistence baseline.
 
 Metrics follow WeatherBench2 conventions: latitude (area) weighted, and ACC
 computed per sample and variable against a climatology from the training
-period (here the time mean of the training targets at each grid point).
+years for the same day of year and hour of day (see seasonal_climatology).
 
 Usage:
     python -m src.evaluation.evaluate
@@ -33,6 +33,9 @@ from src.evaluation.metrics import (
 
 # Physical units of each channel (for reporting errors in real units)
 UNITS = {"t850": "K", "z500": "m²/s²", "u10": "m/s", "v10": "m/s"}
+
+# Half-width of the day-of-year window the climatology averages over
+CLIMATOLOGY_WINDOW_DAYS = 30
 
 
 def load_model(checkpoint_path: str, config: dict, device: str) -> WeatherTransformer:
@@ -63,18 +66,67 @@ def load_model(checkpoint_path: str, config: dict, device: str) -> WeatherTransf
     return model
 
 
-def training_climatology(data_dir: str) -> torch.Tensor:
+def load_target_times(data_dir: str, split: str) -> np.ndarray:
+    """Valid time of every target in a split, as saved by preprocessing."""
+    path = Path(data_dir) / f"{split}_times.npy"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Re-run preprocessing (python -m src.data.preprocessing) "
+            "to save the target times the climatology needs."
+        )
+    return np.load(path)
+
+
+def _day_of_year(times: np.ndarray) -> np.ndarray:
+    """1 for 1 January, up to 366 for 31 December of a leap year."""
+    days = times.astype("datetime64[D]")
+    return (days - days.astype("datetime64[Y]")).astype(int) + 1
+
+
+def _hour_of_day(times: np.ndarray) -> np.ndarray:
+    hours = times.astype("datetime64[h]")
+    return (hours - hours.astype("datetime64[D]")).astype(int)
+
+
+def seasonal_climatology(
+    train_targets: np.ndarray,
+    train_times: np.ndarray,
+    times: np.ndarray,
+    window_days: int = CLIMATOLOGY_WINDOW_DAYS,
+) -> torch.Tensor:
     """
-    Climatology for ACC: time mean of the training targets at every grid point.
+    Climatology for ACC: the usual state for each time's day of year and hour.
+
+    For each entry of `times`, averages the training targets at the same hour
+    of day whose day of year is within ±window_days, across all training
+    years. The window is needed because a few years of data hold only one
+    sample per year for any single date and hour.
 
     Args:
-        data_dir: Processed data directory containing train_targets.npy.
+        train_targets: (N_train, C, H, W) training targets.
+        train_times: (N_train,) valid times of the training targets.
+        times: (N,) valid times to compute the climatology for.
+        window_days: Half-width of the day-of-year window.
 
     Returns:
-        Tensor of shape (C, H, W) in normalized units.
+        Tensor of shape (N, C, H, W) aligned with `times`, in normalized units.
     """
-    targets = np.load(Path(data_dir) / "train_targets.npy", mmap_mode="r")
-    return torch.from_numpy(targets.mean(axis=0, dtype=np.float64).astype(np.float32))
+    train_day, train_hour = _day_of_year(train_times), _hour_of_day(train_times)
+    means = {}
+    climatology = np.empty((len(times),) + train_targets.shape[1:], dtype=np.float32)
+
+    for i, key in enumerate(zip(_day_of_year(times), _hour_of_day(times))):
+        if key not in means:
+            day, hour = key
+            gap = np.abs(train_day - day)
+            gap = np.minimum(gap, 365 - gap)  # wraps around New Year: day 365 is next to day 1
+            selected = (gap <= window_days) & (train_hour == hour)
+            if not selected.any():
+                raise ValueError(f"No training targets at {hour:02d} UTC near day {day}")
+            means[key] = train_targets[selected].mean(axis=0, dtype=np.float64)
+        climatology[i] = means[key]
+
+    return torch.from_numpy(climatology)
 
 
 def load_normalization_stats(data_dir: str) -> Optional[Dict[str, Dict[str, float]]]:
@@ -148,7 +200,8 @@ def evaluate_model(
         batch_size: Batch size for evaluation.
         variable_names: List of variable names.
         lat_weights: Optional (H,) area weights (see latitude_weights).
-        climatology: Optional (C, H, W) climatology for ACC.
+        climatology: Optional (C, H, W) or per-sample (N, C, H, W)
+            climatology for ACC.
 
     Returns:
         Dict with 'model' and 'persistence' metric dicts.
@@ -279,14 +332,21 @@ def main():
     test_dataset = WeatherBenchDataset(data_dir=args.data_dir, split="test")
     print(f"Test samples: {len(test_dataset)}")
 
-    # Evaluate (area-weighted, ACC against the training-period climatology)
+    # Climatology for ACC: training years, same day of year and hour as each test target
+    climatology = seasonal_climatology(
+        np.load(Path(args.data_dir) / "train_targets.npy", mmap_mode="r"),
+        load_target_times(args.data_dir, "train"),
+        load_target_times(args.data_dir, "test"),
+    )
+
+    # Evaluate (area-weighted)
     results = evaluate_model(
         model,
         test_dataset,
         device,
         variable_names=variable_names,
         lat_weights=latitude_weights(test_dataset.height),
-        climatology=training_climatology(args.data_dir),
+        climatology=climatology,
     )
 
     stats = load_normalization_stats(args.data_dir)
@@ -296,7 +356,10 @@ def main():
     results["settings"] = {
         "test_samples": len(test_dataset),
         "latitude_weighting": "cos(latitude), normalized to mean 1",
-        "acc_climatology": "time mean of training targets per grid point",
+        "acc_climatology": (
+            "mean of training targets at the same hour of day, within "
+            f"±{CLIMATOLOGY_WINDOW_DAYS} days of the same day of year"
+        ),
         "units": "normalized (z-score) unless the key ends in _physical",
         "physical_units": {v: UNITS.get(v, "") for v in variable_names},
     }
