@@ -136,3 +136,18 @@ def test_benchmark_refuses_times_missing_from_the_truth():
     with pytest.raises(ValueError):
         benchmark.benchmark(truth, times, forecasts, times[:1],
                             lambda t: torch.zeros(len(t), 4, 32, 64), list(VARIABLES), {})
+
+
+def test_benchmark_figure_is_written(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from src.visualization.plot_benchmark import plot_error_by_lead
+
+    metrics = {"rmse_t850_physical": 1.0}
+    results = {h: {"global": {"persistence": metrics, "graphcast": metrics}} for h in ("6", "12")}
+    path = tmp_path / "benchmark.png"
+
+    plot_error_by_lead(results, ["global"], ["t850"], ["graphcast", "persistence"], str(path))
+
+    assert path.exists() and path.stat().st_size > 0

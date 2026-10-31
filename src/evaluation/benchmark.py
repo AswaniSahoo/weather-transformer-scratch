@@ -60,6 +60,10 @@ STORES = {
 
 LEAD_HOURS = (6, 12, 24, 48, 72)
 
+# Drawn in the --figure plot when present, next to this model and the baselines:
+# the strongest ERA5-trained model, the operational physics model, and FGN
+FIGURE_MODELS = ("graphcast", "hres", "fgn")
+
 
 def open_store(path: str) -> xr.Dataset:
     """Open a public WeatherBench2 Zarr store (anonymous access)."""
@@ -308,6 +312,10 @@ def main():
     )
     parser.add_argument("--cache-dir", default="data/benchmark", help="Downloaded forecasts")
     parser.add_argument("--output", default=None, help="Default: results/benchmark_<year>.json")
+    parser.add_argument(
+        "--figure", default=None,
+        help="Also plot RMSE against lead time (global and India JJAS) to this PNG",
+    )
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -358,6 +366,17 @@ def main():
     summary = output.with_suffix(".md")
     summary.write_text(markdown_summary(results, names), encoding="utf-8")
     print(f"Saved {output} and {summary}")
+
+    if args.figure:
+        from src.visualization.plot_benchmark import plot_error_by_lead
+
+        drawn = [n for n in ("this_model", *FIGURE_MODELS) if n in forecasts]
+        plot_error_by_lead(
+            results, ["global", "india/monsoon_jjas"], ["t850", "z500"],
+            drawn + ["persistence", "anomaly_persistence"], save_path=args.figure,
+            title=f"6-hour to 3-day forecast error, {args.year} (5.625° grid, truth: ERA5)",
+        )
+        print(f"Saved {args.figure}")
 
 
 if __name__ == "__main__":
