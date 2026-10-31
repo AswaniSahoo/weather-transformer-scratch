@@ -92,7 +92,7 @@ def test_main_writes_metrics_and_figure(workspace, monkeypatch):
 
     results = json.loads(output.read_text(encoding="utf-8"))
     assert results["settings"]["physical_units"]["z500"] == "m²/s²"
-    for name in ("model", "persistence"):
+    for name in ("model", "persistence", "anomaly_persistence"):
         for var in VARIABLES:
             assert f"rmse_{var}" in results[name]
             assert f"acc_{var}" in results[name]
@@ -112,6 +112,23 @@ def test_main_writes_metrics_and_figure(workspace, monkeypatch):
     assert india["rest_of_year"]["persistence"]["rmse_t850_physical"] == pytest.approx(
         0.1 * STATS["t850"]["std"], rel=1e-4
     )
+    assert "anomaly_persistence" in india["monsoon_jjas"]
+
+
+def test_anomaly_persistence_does_not_count_the_usual_change():
+    """When only the usual daily cycle changes, anomaly persistence is exact."""
+    input_climatology = torch.zeros(4, 1, 32, 64)
+    climatology = torch.ones(4, 1, 32, 64)  # the usual state rises by 1 in 6 hours
+    anomaly = torch.randn(4, 1, 32, 64)
+    inputs, targets = input_climatology + anomaly, climatology + anomaly
+
+    scores = evaluate.score(
+        inputs, inputs, targets, ["t850"],
+        climatology=climatology, input_climatology=input_climatology,
+    )
+
+    assert scores["persistence"]["rmse"] == pytest.approx(1.0)
+    assert scores["anomaly_persistence"]["rmse"] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_regional_scores_only_see_their_region_and_season():
