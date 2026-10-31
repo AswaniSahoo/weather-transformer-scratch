@@ -116,7 +116,11 @@ def forecast_fields(
     Returns:
         (I, L, C, H, W) float32 array with latitude ascending, as the model
         sees it, and the names of the C channels the store provides.
+
+    Raises:
+        ValueError: If the store is not on the grid the truth and metrics use.
     """
+    check_grid(ds)
     names = [name for name, spec in variables.items() if spec["name"] in ds]
     subset = ds.sel(time=inits, prediction_timedelta=[np.timedelta64(h, "h") for h in lead_hours])
     selected = select_variables(subset, {name: variables[name] for name in names})

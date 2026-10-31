@@ -62,6 +62,12 @@ class TestForecastFields:
         assert fields[0, 1, 0, 3, 5] == 10000 * 1 + 1000 * 2 + 100 * 1 + 10 * 5 + 3  # t850
         assert fields[0, 1, 1, 3, 5] == -(10000 * 1 + 1000 * 2 + 100 * 0 + 10 * 5 + 3)  # z500
 
+    def test_store_on_a_different_grid_is_refused(self):
+        times = twelve_hourly("2020-01-01", 2)
+        flipped = wb2_like_forecasts(times).isel(latitude=slice(None, None, -1))
+        with pytest.raises(ValueError):
+            benchmark.forecast_fields(flipped, VARIABLES, times, [6])
+
     def test_missing_variables_are_left_out(self):
         times = twelve_hourly("2020-01-01", 2)
         _, names = benchmark.forecast_fields(
