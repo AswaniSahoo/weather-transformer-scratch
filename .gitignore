@@ -27,6 +27,7 @@ weather-transformer-env/
 # Data (large files)
 data/raw/
 data/processed/
+data/benchmark/
 *.zarr/
 *.nc
 *.h5
