@@ -10,6 +10,7 @@ Handles the full training loop with:
 """
 
 import json
+import os
 import random
 import time
 from pathlib import Path
@@ -37,6 +38,26 @@ def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def _rng_state() -> dict:
+    """Current state of every random number generator training draws from."""
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _set_rng_state(state: dict) -> None:
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"].cpu())
+    if "cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all([s.cpu() for s in state["cuda"]])
 
 
 class Trainer:
@@ -134,6 +155,9 @@ class Trainer:
             "lr": [],
         }
 
+        # First epoch to run (later than 1 after resume())
+        self.start_epoch = 1
+
     def train(self) -> Dict[str, List[float]]:
         """
         Run full training loop.
@@ -147,7 +171,7 @@ class Trainer:
 
         total_start = time.time()
 
-        for epoch in range(1, self.epochs + 1):
+        for epoch in range(self.start_epoch, self.epochs + 1):
             epoch_start = time.time()
 
             # Train one epoch
@@ -174,11 +198,14 @@ class Trainer:
             if is_best:
                 self.best_val_loss = val_metrics["total"]
                 self.best_epoch = epoch
-                self._save_checkpoint(epoch, is_best=True)
+                self._save_checkpoint(epoch, "best_model.pt")
 
             # Periodic checkpoint
             if self.save_every and epoch % self.save_every == 0:
-                self._save_checkpoint(epoch, is_best=False)
+                self._save_checkpoint(epoch, f"checkpoint_epoch_{epoch}.pt")
+
+            # Everything needed to continue from here if the run stops
+            self._save_checkpoint(epoch, "last.pt")
 
             # Epoch summary
             epoch_time = time.time() - epoch_start
@@ -279,23 +306,25 @@ class Trainer:
             "mse": total_mse / n_batches,
         }
 
-    def _save_checkpoint(self, epoch: int, is_best: bool = False):
-        """Save model checkpoint."""
+    def _save_checkpoint(self, epoch: int, filename: str):
+        """Save the full training state after `epoch` to checkpoint_dir/filename."""
         checkpoint = {
             "epoch": epoch,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scheduler_state_dict": self.scheduler.state_dict(),
             "best_val_loss": self.best_val_loss,
+            "best_epoch": self.best_epoch,
+            "history": self.history,
+            "rng_state": _rng_state(),
             "config": self.config,
         }
-
-        if is_best:
-            path = self.checkpoint_dir / "best_model.pt"
-        else:
-            path = self.checkpoint_dir / f"checkpoint_epoch_{epoch}.pt"
-
-        torch.save(checkpoint, path)
+        # Write a temporary file, then swap it in: a run killed mid-save keeps
+        # the previous checkpoint instead of a half-written one
+        path = self.checkpoint_dir / filename
+        tmp_path = path.with_name(path.name + ".tmp")
+        torch.save(checkpoint, tmp_path)
+        os.replace(tmp_path, path)
 
     def _save_log(self):
         """Save training log to JSON."""
@@ -308,17 +337,26 @@ class Trainer:
         with open(self.log_file, "w") as f:
             json.dump(log, f, indent=2)
 
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load a checkpoint to resume training."""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device,weights_only=False)
+    def resume(self, checkpoint_path: str) -> None:
+        """
+        Continue a stopped run from a checkpoint saved by this trainer.
+
+        Restores the weights, optimizer, scheduler, history and random number
+        generators, so the remaining epochs are the same as if the run had
+        never stopped.
+        """
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        self.best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        self.best_val_loss = checkpoint["best_val_loss"]
+        self.best_epoch = checkpoint["best_epoch"]
+        self.history = checkpoint["history"]
+        _set_rng_state(checkpoint["rng_state"])
+        self.start_epoch = checkpoint["epoch"] + 1
 
-        print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
-        return checkpoint["epoch"]
+        print(f"Resuming after epoch {checkpoint['epoch']}")
 
 
 if __name__ == "__main__":
