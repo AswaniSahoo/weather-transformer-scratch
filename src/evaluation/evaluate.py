@@ -1,8 +1,9 @@
 """
 Evaluation script for the Weather Transformer.
 
-Loads a trained model, runs it on the test set, and compares
-against the persistence baseline.
+Loads a trained model, runs it on the test set, and compares it with two
+baselines: persistence and anomaly persistence (see score()), globally and
+for each region and season in regions.py.
 
 Metrics follow WeatherBench2 conventions: latitude (area) weighted, and ACC
 computed per sample and variable against a climatology from the training
@@ -30,12 +31,16 @@ from src.evaluation.metrics import (
     latitude_weights,
     persistence_baseline,
 )
+from src.evaluation.regions import REGIONS, SEASONS, months, region_cells
 
 # Physical units of each channel (for reporting errors in real units)
 UNITS = {"t850": "K", "z500": "m²/s²", "u10": "m/s", "v10": "m/s"}
 
 # Half-width of the day-of-year window the climatology averages over
 CLIMATOLOGY_WINDOW_DAYS = 30
+
+# Forecasts scored by score(), in print order
+FORECASTS = ("model", "persistence", "anomaly_persistence")
 
 
 def load_model(checkpoint_path: str, config: dict, device: str) -> WeatherTransformer:
@@ -181,34 +186,38 @@ def predict(
     return torch.cat(all_inputs), torch.cat(all_preds), torch.cat(all_targets)
 
 
-def evaluate_model(
-    model: WeatherTransformer,
-    dataset: WeatherBenchDataset,
-    device: str,
-    batch_size: int = 64,
+def score(
+    inputs: torch.Tensor,
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
     variable_names: Optional[List[str]] = None,
     lat_weights: Optional[torch.Tensor] = None,
     climatology: Optional[torch.Tensor] = None,
+    input_climatology: Optional[torch.Tensor] = None,
+    stats: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Dict[str, Dict[str, float]]:
     """
-    Evaluate model on a dataset and compare with persistence baseline.
+    Metrics for the model and the baselines on the same samples.
+
+    Baselines: persistence (the input itself) and, if `input_climatology` is
+    given, anomaly persistence: the input's departure from its usual state,
+    added to the usual state at the target time. Unlike persistence, it does
+    not count the regular daily cycle as forecast error.
 
     Args:
-        model: Trained WeatherTransformer.
-        dataset: Test dataset.
-        device: Device string.
-        batch_size: Batch size for evaluation.
+        inputs, predictions, targets: (N, C, H, W) tensors from predict().
         variable_names: List of variable names.
         lat_weights: Optional (H,) area weights (see latitude_weights).
         climatology: Optional (C, H, W) or per-sample (N, C, H, W)
-            climatology for ACC.
+            climatology at the target times, for ACC.
+        input_climatology: Optional per-sample climatology at the input times.
+        stats: Optional normalization stats; adds RMSE in physical units.
 
     Returns:
-        Dict with 'model' and 'persistence' metric dicts.
+        Dict with 'model', 'persistence' and, if computed,
+        'anomaly_persistence' metric dicts.
     """
-    inputs, predictions, targets = predict(model, dataset, device, batch_size)
-
-    return {
+    scores = {
         "model": compute_all_metrics(
             predictions, targets, variable_names, lat_weights, climatology
         ),
@@ -216,6 +225,73 @@ def evaluate_model(
             inputs, targets, variable_names, lat_weights, climatology
         ),
     }
+    if input_climatology is not None:
+        scores["anomaly_persistence"] = compute_all_metrics(
+            inputs + climatology - input_climatology,
+            targets, variable_names, lat_weights, climatology,
+        )
+    if stats:
+        scores = {name: add_physical_units(m, stats) for name, m in scores.items()}
+    return scores
+
+
+def _subset(x: torch.Tensor, keep: torch.Tensor, rows: torch.Tensor, cols: torch.Tensor):
+    """The samples in `keep`, cut to the region's rows and columns."""
+    return x[keep][:, :, rows][:, :, :, cols]
+
+
+def regional_scores(
+    inputs: torch.Tensor,
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    times: np.ndarray,
+    climatology: torch.Tensor,
+    variable_names: Optional[List[str]] = None,
+    input_climatology: Optional[torch.Tensor] = None,
+    stats: Optional[Dict[str, Dict[str, float]]] = None,
+) -> Dict[str, dict]:
+    """
+    score() for every region and season in regions.py, area-weighted.
+
+    Args:
+        inputs, predictions, targets: (N, C, H, W) tensors from predict().
+        times: (N,) valid times of the targets.
+        climatology: Per-sample (N, C, H, W) climatology for ACC.
+        variable_names: List of variable names.
+        input_climatology: Optional per-sample climatology at the input times.
+        stats: Optional normalization stats; adds RMSE in physical units.
+
+    Returns:
+        {region: {"box", "cells", season: {"samples", <forecast>: metrics}}}.
+        A season with no samples has only "samples": 0.
+    """
+    n_lat, n_lon = targets.shape[-2:]
+    weights = latitude_weights(n_lat)
+    month = months(times)
+    results = {}
+
+    for region, box in REGIONS.items():
+        rows, cols = (torch.as_tensor(i) for i in region_cells(box, n_lat, n_lon))
+        results[region] = {"box": list(box), "cells": len(rows) * len(cols)}
+
+        for season, season_months in SEASONS.items():
+            keep = torch.as_tensor(np.isin(month, season_months))
+            entry = {"samples": int(keep.sum())}
+            if entry["samples"]:
+                entry.update(score(
+                    *(_subset(x, keep, rows, cols) for x in (inputs, predictions, targets)),
+                    variable_names,
+                    weights[rows],
+                    _subset(climatology, keep, rows, cols),
+                    input_climatology=(
+                        None if input_climatology is None
+                        else _subset(input_climatology, keep, rows, cols)
+                    ),
+                    stats=stats,
+                ))
+            results[region][season] = entry
+
+    return results
 
 
 def save_forecast_figure(
@@ -253,37 +329,28 @@ def save_forecast_figure(
     )
 
 
-def print_results(results: Dict[str, Dict[str, float]]):
-    """Pretty-print evaluation results."""
-    print("\n" + "=" * 60)
-    print("EVALUATION RESULTS")
-    print("=" * 60)
-
-    print(f"\n{'Metric':<25} {'Model':>12} {'Persistence':>12} {'Better?':>10}")
-    print("-" * 60)
-
-    model_m = results["model"]
-    persist_m = results["persistence"]
+def print_results(results: Dict[str, Dict[str, float]], title: str = "EVALUATION RESULTS"):
+    """Pretty-print the model's metrics next to the baselines'."""
+    columns = [name for name in FORECASTS if name in results]
+    width = 24 + 20 * len(columns)
+    print("\n" + "=" * width)
+    print(title)
+    print("=" * width)
+    print(f"\n{'Metric':<24}" + "".join(f"{name.replace('_', ' '):>20}" for name in columns))
+    print("-" * width)
 
     # Overall metrics, then per-variable ones (rmse_t850, acc_t850, ...)
     keys = ["rmse", "mae", "acc"] + [
-        k for k in model_m if k.startswith(("rmse_", "acc_"))
+        k for k in results["model"] if k.startswith(("rmse_", "acc_"))
     ]
     for key in keys:
-        model_val = model_m.get(key, float("nan"))
-        persist_val = persist_m.get(key, float("nan"))
-
-        if key.startswith("acc"):
-            better = "✅" if model_val > persist_val else "❌"
-        else:
-            better = "✅" if model_val < persist_val else "❌"
-
         unit = ""
         if key.endswith("_physical"):
             unit = UNITS.get(key[len("rmse_"):-len("_physical")], "")
-        print(f"  {key:<23} {model_val:>12.6f} {persist_val:>12.6f} {better:>10}  {unit}")
+        values = "".join(f"{results[name].get(key, float('nan')):>20.6f}" for name in columns)
+        print(f"  {key:<22}{values}  {unit}")
 
-    print("=" * 60)
+    print("=" * width)
 
 
 def main():
@@ -332,26 +399,26 @@ def main():
     test_dataset = WeatherBenchDataset(data_dir=args.data_dir, split="test")
     print(f"Test samples: {len(test_dataset)}")
 
-    # Climatology for ACC: training years, same day of year and hour as each test target
-    climatology = seasonal_climatology(
-        np.load(Path(args.data_dir) / "train_targets.npy", mmap_mode="r"),
-        load_target_times(args.data_dir, "train"),
-        load_target_times(args.data_dir, "test"),
-    )
-
-    # Evaluate (area-weighted)
-    results = evaluate_model(
-        model,
-        test_dataset,
-        device,
-        variable_names=variable_names,
-        lat_weights=latitude_weights(test_dataset.height),
-        climatology=climatology,
-    )
-
+    # Climatology from the training years, at the same day of year and hour as each
+    # test target (for ACC) and as each input (for the anomaly persistence baseline)
+    train_targets = np.load(Path(args.data_dir) / "train_targets.npy", mmap_mode="r")
+    train_times = load_target_times(args.data_dir, "train")
+    test_times = load_target_times(args.data_dir, "test")
+    lead = np.timedelta64(config["data"].get("lead_time_hours", 6), "h")
+    climatology = seasonal_climatology(train_targets, train_times, test_times)
+    input_climatology = seasonal_climatology(train_targets, train_times, test_times - lead)
     stats = load_normalization_stats(args.data_dir)
-    if stats:
-        results = {name: add_physical_units(m, stats) for name, m in results.items()}
+
+    # Evaluate (area-weighted): the whole globe, then each region and season
+    inputs, predictions, targets = predict(model, test_dataset, device)
+    results = score(
+        inputs, predictions, targets, variable_names, latitude_weights(test_dataset.height),
+        climatology, input_climatology=input_climatology, stats=stats,
+    )
+    results["regions"] = regional_scores(
+        inputs, predictions, targets, test_times, climatology, variable_names,
+        input_climatology=input_climatology, stats=stats,
+    )
 
     results["settings"] = {
         "test_samples": len(test_dataset),
@@ -360,12 +427,20 @@ def main():
             "mean of training targets at the same hour of day, within "
             f"±{CLIMATOLOGY_WINDOW_DAYS} days of the same day of year"
         ),
+        "anomaly_persistence": "input + (climatology at target time - climatology at input time)",
         "units": "normalized (z-score) unless the key ends in _physical",
         "physical_units": {v: UNITS.get(v, "") for v in variable_names},
+        "regions": "grid cells whose centres lie in box = [lat_min, lat_max, lon_min, lon_max]",
+        "seasons": {name: list(season_months) for name, season_months in SEASONS.items()},
     }
 
     # Print results
     print_results(results)
+    for region, by_season in results["regions"].items():
+        for season in SEASONS:
+            entry = by_season[season]
+            if entry["samples"]:
+                print_results(entry, f"{region.upper()}, {season} ({entry['samples']} samples)")
 
     # Save results. UTF-8 explicitly: the units contain "²", and on Windows the
     # default encoding (cp1252) would write a file other tools cannot read.
