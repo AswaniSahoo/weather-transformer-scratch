@@ -1,0 +1,97 @@
+{
+  "forecast": "persistence (input state as the 6-hour forecast), test set",
+  "test_samples": 1463,
+  "units": "RMSE in physical units unless named 'normalized'; persistence_rmse_* are normalized",
+  "1_area_weighting": {
+    "polar_rows_share_of_cells": 0.312,
+    "polar_rows_share_of_area": 0.118,
+    "equator_to_polar_cell_area": 20.4,
+    "persistence_rmse_unweighted": 0.2681,
+    "persistence_rmse_weighted": 0.2591
+  },
+  "2_pooled_acc": {
+    "persistence_pooled": 0.915,
+    "persistence_per_variable": {
+      "t850": 0.9751,
+      "z500": 0.9827,
+      "u10": 0.9149,
+      "v10": 0.8863
+    },
+    "reversed_t850_pooled": 0.713,
+    "reversed_t850_per_variable": {
+      "t850": -0.9751,
+      "z500": 0.9827,
+      "u10": 0.9149,
+      "v10": 0.8863
+    },
+    "share_of_anomaly_size": {
+      "t850": 0.1029,
+      "z500": 0.0906,
+      "u10": 0.3216,
+      "v10": 0.4849
+    }
+  },
+  "3_4_acc_by_climatology": {
+    "test_year_mean": {
+      "t850": 0.9691,
+      "z500": 0.9765,
+      "u10": 0.9146,
+      "v10": 0.883
+    },
+    "training_years_mean": {
+      "t850": 0.9692,
+      "z500": 0.9767,
+      "u10": 0.916,
+      "v10": 0.8839
+    },
+    "training_years_seasonal": {
+      "t850": 0.9325,
+      "z500": 0.962,
+      "u10": 0.9071,
+      "v10": 0.8749
+    }
+  },
+  "5_india_monsoon_daily_cycle": {
+    "anomaly_size_rms": {
+      "t850": 0.9424,
+      "z500": 184.0391,
+      "u10": 1.7098,
+      "v10": 1.476
+    },
+    "usual_6h_change_rms": {
+      "t850": 0.8208,
+      "z500": 134.7524,
+      "u10": 0.5597,
+      "v10": 0.6194
+    },
+    "persistence_rmse": {
+      "t850": 0.8771,
+      "z500": 147.7219,
+      "u10": 0.8831,
+      "v10": 0.8803
+    },
+    "persistence_acc": {
+      "t850": 0.6629,
+      "z500": 0.7019,
+      "u10": 0.8475,
+      "v10": 0.8052
+    },
+    "anomaly_persistence_rmse": {
+      "t850": 0.3292,
+      "z500": 49.2292,
+      "u10": 0.665,
+      "v10": 0.6211
+    },
+    "anomaly_persistence_acc": {
+      "t850": 0.9236,
+      "z500": 0.9517,
+      "u10": 0.9127,
+      "v10": 0.892
+    }
+  },
+  "6_smoothness_term": {
+    "smoothness_of_validation_targets": 0.5132,
+    "smoothness_weight": 0.1,
+    "penalty_paid_by_a_perfect_forecast": 0.0513
+  }
+}
